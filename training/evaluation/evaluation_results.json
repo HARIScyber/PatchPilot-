@@ -1,0 +1,11 @@
+{
+  "evaluation_status": "NOT_MEASURED",
+  "dataset": "synthetic_benchmark.json",
+  "case_count": 3,
+  "dataset_type": "synthetic",
+  "metrics": null,
+  "reason": "No reproducible repair benchmark harness exists; previous values were hardcoded and are withdrawn.",
+  "failed_cases": null,
+  "skipped_cases": 3,
+  "reproducibility": "No performance experiment was run."
+}

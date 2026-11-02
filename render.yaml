@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: patchpilot-api
+    runtime: docker
+    plan: free
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: MODEL_API_KEY
+        sync: false
+      - key: META_MODEL_ID
+        sync: false
+      - key: META_API_BASE_URL
+        sync: false
+      - key: APP_MODE
+        sync: false
+      - key: DEMO_MODE
+        sync: false
+      - key: EXECUTION_BACKEND
+        sync: false
+      - key: ENABLE_UPLOAD
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: PUBLIC_DAILY_META_CALL_CAP
+        sync: false
+      - key: PUBLIC_MAX_ATTEMPTS
+        sync: false
+      - key: PUBLIC_MAX_TOKENS_PER_CALL
+        sync: false
+      - key: PUBLIC_DEMO_ENABLED
+        sync: false

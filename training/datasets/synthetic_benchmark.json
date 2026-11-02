@@ -1,0 +1,32 @@
+[
+  {
+    "id": "CASE-01",
+    "title": "Calculator Cumulative Sum Boundary Off-By-One",
+    "description": "compute_cumulative_total terminates one item early using range(len(items) - 1)",
+    "file_path": "core/calculator.py",
+    "defect_line": 20,
+    "failing_test": "test_cumulative_total_inclusive",
+    "expected_fix_pattern": "range(len(items))",
+    "ground_truth_category": "boundary_error"
+  },
+  {
+    "id": "CASE-02",
+    "title": "Mutable Default Parameter in Data Container",
+    "description": "Function uses default list argument accumulating stale items across invocations",
+    "file_path": "utils/collector.py",
+    "defect_line": 12,
+    "failing_test": "test_isolation_between_calls",
+    "expected_fix_pattern": "items=None",
+    "ground_truth_category": "mutable_default"
+  },
+  {
+    "id": "CASE-03",
+    "title": "Price Discount Percentage Out of Range Exception",
+    "description": "Discount calculation does not clamp negative values",
+    "file_path": "core/calculator.py",
+    "defect_line": 28,
+    "failing_test": "test_discount_boundary_negative",
+    "expected_fix_pattern": "ValueError",
+    "ground_truth_category": "input_validation"
+  }
+]
