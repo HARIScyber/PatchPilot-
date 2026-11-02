@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Activity, ArrowDownRight, ArrowRight, CircleHelp, Code2, ShieldCheck, Sun, Terminal, Zap } from 'lucide-react';
+import { fetchPublicConfig, fetchPublicStats } from './services/api';
 
 type Theme = 'aurora' | 'meta-blue' | 'daylight';
 type Stats = { projects: number; runs: number; verified_runs: number };
 type PublicConfig = { mode: string; provider_status: string; execution_backend: string; demo_enabled: boolean };
-const API = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') || '';
 const APP_MODE = import.meta.env.VITE_APP_MODE || 'local';
 
 function initialTheme(): Theme {
@@ -27,10 +27,8 @@ export default function Landing() {
   }, [theme]);
   useEffect(() => {
     let active = true;
-    Promise.all([
-      fetch(`${API}/api/public/stats`, { headers: { Accept: 'application/json' } }).then((response) => { if (!response.ok) throw new Error('stats unavailable'); return response.json() as Promise<Stats>; }),
-      fetch(`${API}/api/public/config`, { headers: { Accept: 'application/json' } }).then((response) => { if (!response.ok) throw new Error('config unavailable'); return response.json() as Promise<PublicConfig>; }),
-    ]).then(([value, publicConfig]) => { if (active) { setStats(value); setConfig(publicConfig); } })
+    Promise.all([fetchPublicStats(), fetchPublicConfig()])
+      .then(([value, publicConfig]) => { if (active) { setStats(value); setConfig(publicConfig); } })
       .catch(() => { if (active) setStatsUnavailable(true); });
     return () => { active = false; };
   }, []);

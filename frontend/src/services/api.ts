@@ -10,29 +10,57 @@ import {
   EvidenceReport,
 } from '../types';
 
-const configuredApiBase = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '');
-const BASE_URL = configuredApiBase ? `${configuredApiBase}/api` : '/api';
+// Browser requests stay same-origin: Vite proxies in development and Vercel
+// rewrites /api/* to the Render service in production.
+const BASE_URL = '/api';
 
 export class ApiError extends Error {
-  constructor(message: string, public readonly errorCode?: string, public readonly status?: number) {
+  constructor(message: string, public readonly errorCode?: string, public readonly status?: number, public readonly requestId?: string) {
     super(message);
     this.name = 'ApiError';
   }
 }
 
-async function request(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const response = await fetch(input, init);
+async function request(input: RequestInfo | URL, init?: RequestInit, timeoutMs = 60_000): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response;
+  try {
+    response = await fetch(input, { ...init, signal: init?.signal ?? controller.signal });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new ApiError('The PatchPilot request timed out. The backend may be waking up; try again.', 'REQUEST_TIMEOUT');
+    }
+    if (error instanceof TypeError) {
+      throw new ApiError('Could not reach the PatchPilot backend. Check the connection and try again.', 'NETWORK_ERROR');
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
   if (!response.ok) {
     let payload: any = {};
     try { payload = await response.clone().json(); } catch { /* response had no JSON body */ }
     const detail = payload.message || payload.detail || `Request failed (HTTP ${response.status})`;
-    throw new ApiError(detail, payload.error_code, response.status);
+    const requestId = response.headers.get('X-Request-ID') ?? undefined;
+    const message = requestId ? `${detail} (Request ID: ${requestId})` : detail;
+    throw new ApiError(message, payload.error_code, response.status, requestId);
   }
   return response;
 }
 
 export async function fetchHealth(): Promise<any> {
-  const res = await request(`${BASE_URL}/health`);
+  const res = await request(`${BASE_URL}/health`, undefined, 90_000);
+  return res.json();
+}
+
+export async function fetchPublicConfig(): Promise<any> {
+  const res = await request(`${BASE_URL}/public/config`, undefined, 90_000);
+  return res.json();
+}
+
+export async function fetchPublicStats(): Promise<{ projects: number; runs: number; verified_runs: number }> {
+  const res = await request(`${BASE_URL}/public/stats`, undefined, 90_000);
   return res.json();
 }
 
@@ -100,7 +128,7 @@ export async function generateRepairPlan(projectId: string, findingId?: string):
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ finding_id: findingId }),
-  });
+  }, 150_000);
   return res.json();
 }
 
@@ -109,7 +137,7 @@ export async function generatePatch(projectId: string, planId?: string, targetFi
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ plan_id: planId, target_file: targetFile }),
-  });
+  }, 150_000);
   return res.json();
 }
 
@@ -152,7 +180,7 @@ export async function runRepairLoop(patchId: string, maxAttempts = 3): Promise<a
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ max_attempts: maxAttempts }),
-  });
+  }, 150_000);
   return res.json();
 }
 

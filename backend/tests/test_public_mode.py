@@ -83,3 +83,31 @@ def test_public_cors_does_not_allow_untrusted_origin(public_settings):
     with TestClient(app) as client:
         response = client.get("/api/health", headers={"Origin": "https://evil.example"})
     assert "access-control-allow-origin" not in response.headers
+
+
+def test_production_cors_allows_exact_frontend_origin_without_credentials():
+    with TestClient(app) as client:
+        response = client.options("/api/health", headers={
+            "Origin": "https://patchpilot-delta.vercel.app",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "content-type",
+        })
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://patchpilot-delta.vercel.app"
+    assert "POST" in response.headers["access-control-allow-methods"]
+    assert response.headers.get("access-control-allow-credentials") != "true"
+
+
+def test_health_routes_do_not_expose_internal_database_details():
+    with TestClient(app) as client:
+        health = client.get("/api/health")
+        database = client.get("/api/health/database")
+        ready = client.get("/api/health/ready")
+    assert health.status_code == 200
+    assert health.json()["database"]["status"] in {"ok", "unavailable"}
+    assert "engine" not in health.json()["database"]
+    assert "sqlite" not in health.text.lower()
+    assert database.status_code in {200, 503}
+    assert "detail" not in database.json()
+    assert ready.status_code in {200, 503}
+    assert "EXECUTION_UNAVAILABLE" == ready.json()["execution_status"]

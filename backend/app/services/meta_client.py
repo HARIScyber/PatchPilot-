@@ -61,7 +61,7 @@ class MetaClient:
     async def _post(self, url, *, headers, json, timeout):
         client = self.http_client or _shared_http_client
         if client is not None:
-            return await client.post(url, headers=headers, json=json)
+            return await client.post(url, headers=headers, json=json, timeout=timeout)
         async with httpx.AsyncClient(timeout=timeout) as client:
             return await client.post(url, headers=headers, json=json)
 
@@ -126,6 +126,8 @@ class MetaClient:
 
         start_t = time.time()
         try:
+            if self.settings.APP_MODE == "public_demo":
+                self._reserve_public_call()
             resp = await self._post(url, headers=headers, json=test_payload, timeout=10.0)
             latency_ms = int((time.time() - start_t) * 1000)
 
@@ -168,6 +170,8 @@ class MetaClient:
                     "message": f"Meta API returned status {resp.status_code}.",
                 }
 
+        except MetaAPIError:
+            raise
         except (httpx.TimeoutException, httpx.NetworkError) as exc:
             return {
                 "status": "PROVIDER_UNAVAILABLE",

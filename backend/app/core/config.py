@@ -50,12 +50,12 @@ class Settings(BaseSettings):
         default=False,
         description="When True, use deterministic simulated responses instead of real Meta API",
     )
-    APP_MODE: str = Field(default="local")
+    APP_MODE: str = Field(default="public_demo")
     EXECUTION_BACKEND: str = Field(default="none")
-    ENABLE_UPLOAD: bool = Field(default=True)
-    ALLOWED_ORIGINS: str = Field(default="http://127.0.0.1:3000,http://localhost:3000")
+    ENABLE_UPLOAD: bool = Field(default=False)
+    ALLOWED_ORIGINS: str = Field(default="http://127.0.0.1:3000,http://localhost:3000,https://patchpilot-delta.vercel.app")
     PUBLIC_DAILY_META_CALL_CAP: int = Field(default=200, ge=0)
-    PUBLIC_MAX_ATTEMPTS: int = Field(default=2, ge=1, le=2)
+    PUBLIC_MAX_ATTEMPTS: int = Field(default=3, ge=1, le=3)
     PUBLIC_MAX_TOKENS_PER_CALL: int = Field(default=2048, ge=1, le=2048)
     PUBLIC_DEMO_ENABLED: bool = Field(default=False)
 

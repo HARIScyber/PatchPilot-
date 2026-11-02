@@ -30,7 +30,7 @@ class FakeAsyncClient:
     async def __aexit__(self, *args):
         return None
 
-    async def post(self, url, headers, json):
+    async def post(self, url, headers, json, timeout=None):
         self.requests.append((url, headers, json))
         return self.response
 

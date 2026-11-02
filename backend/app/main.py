@@ -10,6 +10,8 @@ from fastapi.responses import JSONResponse
 import httpx
 import hashlib
 import time
+import re
+from uuid import uuid4
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from sqlalchemy import text
@@ -56,15 +58,18 @@ app = FastAPI(
     description="Self-Verifying AI Software Engineering Agent API powered by Meta AI (dev.meta.ai Muse Spark)",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url=None if get_settings().APP_MODE == "public_demo" else "/docs",
+    redoc_url=None if get_settings().APP_MODE == "public_demo" else "/redoc",
+    openapi_url=None if get_settings().APP_MODE == "public_demo" else "/openapi.json",
 )
 
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in get_settings().ALLOWED_ORIGINS.split(",") if origin.strip()],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Accept", "Content-Type", "X-Request-ID"],
 )
 
 
@@ -108,6 +113,19 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 
+@app.middleware("http")
+async def add_request_correlation_id(request: Request, call_next):
+    candidate = request.headers.get("X-Request-ID", "")
+    request_id = candidate if re.fullmatch(r"[A-Za-z0-9._-]{1,64}", candidate) else uuid4().hex
+    started = time.perf_counter()
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    logger.info("request_id=%s method=%s path=%s status=%d elapsed_ms=%d",
+        request_id, request.method, request.url.path, response.status_code,
+        int((time.perf_counter() - started) * 1000))
+    return response
+
+
 @app.exception_handler(MetaAPIError)
 async def meta_error_handler(_request: Request, exc: MetaAPIError):
     status = {"NOT_CONFIGURED": 503, "AUTHENTICATION_FAILED": 401, "RATE_LIMITED": 429,
@@ -125,29 +143,47 @@ app.include_router(repair.router, prefix="/api", tags=["repairs"])
 
 @app.get("/api/health", tags=["health"])
 async def health_check():
-    """Application health check including database status and verifiable Meta provider state."""
+    """Basic health with sanitized dependency state; never return internal URLs or settings."""
     settings = get_settings()
-    db_health = check_db_health()
+    db_status = check_db_health().get("status")
     meta_status = await get_cached_meta_status()
-
-    overall_status = "ok"
-    if db_health.get("status") != "ok":
-        overall_status = "degraded"
-
+    healthy = db_status == "ok"
     return {
-        "status": overall_status,
-        "app_env": settings.APP_ENV,
+        "status": "ok" if healthy else "degraded",
         "app_mode": settings.APP_MODE,
         "demo_mode": settings.DEMO_MODE,
-        "meta_provider": meta_status,
-        "database": db_health,
+        "database": {"status": "ok" if healthy else "unavailable"},
+        "meta_provider": {
+            "status": meta_status.get("status", "UNKNOWN"),
+            "connected": bool(meta_status.get("connected", False)),
+            "model_id": meta_status.get("model_id"),
+            "message": meta_status.get("message"),
+        },
         "sandbox": {
-            "isolation_type": "unavailable",
-            "docker_available": False,
-            "isolation_level": "NONE; repository execution is disabled",
             "execution_status": "EXECUTION_UNAVAILABLE",
         },
     }
+
+
+@app.get("/api/health/database", tags=["health"])
+def database_health():
+    """Database connectivity without returning a URL, file path, or exception details."""
+    healthy = check_db_health().get("status") == "ok"
+    return JSONResponse(status_code=200 if healthy else 503,
+        content={"status": "ok" if healthy else "unavailable"})
+
+
+@app.get("/api/health/ready", tags=["health"])
+async def readiness_health():
+    """Readiness for API use; Meta connectivity is reported but never called here."""
+    healthy = check_db_health().get("status") == "ok"
+    provider_status = (await get_cached_meta_status()).get("status", "UNKNOWN")
+    return JSONResponse(status_code=200 if healthy else 503, content={
+        "status": "ready" if healthy else "not_ready",
+        "database": "ok" if healthy else "unavailable",
+        "provider_status": provider_status,
+        "execution_status": "EXECUTION_UNAVAILABLE",
+    })
 
 
 @app.get("/api/health/meta", tags=["health"])
