@@ -4,7 +4,7 @@ Checked 3 November 2026. This report records observed results only; tests were n
 
 | Check | URL/command | Expected | Actual | Result |
 |---|---|---|---|---|
-| GitHub main exists | `git ls-remote --heads origin main` | Remote main SHA matches source | `352d0004f60b92e57ef227a89e91df1cb1c0ec80` | PASS |
+| GitHub main exists | `git ls-remote --heads origin main` | Remote main revision matches source | Matched at the time of the earlier check; post-push recheck was blocked by network | PASS at initial check |
 | Local branch/status | `git status --short --branch`; `git branch -vv` | Clean main tracking origin/main before edits | Clean at start, `main` tracking `origin/main` | PASS |
 | Vercel frontend | `GET https://patchpilot-delta.vercel.app/` | HTTP 200 and PatchPilot page | HTTP 404, Vercel `NOT_FOUND` response | FAIL |
 | Render health | `GET https://patchpilot-rurc.onrender.com/api/health` | Sanitized health JSON | curl exit 28 after 100 seconds; no HTTP response | BLOCKED |
@@ -24,16 +24,20 @@ These checks were run in the follow-up integration pass after the previous GitHu
 
 | Check | Command | Actual | Result |
 |---|---|---|---|
-| Backend regression suite | `python -m pytest tests -q` from `backend` | 41 passed, 2 third-party deprecation warnings | PASS |
+| Backend regression suite | `python -m pytest tests -q` from `backend` | 53 passed, 2 third-party deprecation warnings | PASS |
 | Frontend contrast/typecheck/build | `node scripts/contrast-check.mjs`; `npm.cmd run typecheck`; `npm.cmd run build` | All three themes pass; TypeScript passes; Vite build succeeds | PASS |
-| Ruff | `python -m ruff check backend/app` | All checks passed | PASS |
+| Ruff | `python -m ruff check app tests` from `backend` | All checks passed | PASS |
 | Credential scan | `python scripts/credential-scan.py` | No configured credential patterns found | PASS |
 | Deploy probe script syntax | PowerShell parser on `scripts/check-deploy.ps1` | Parse succeeded | PASS |
 | Deployment HTTP evidence | `./scripts/check-deploy.ps1` | Not run here because outbound network access is unavailable; owner must run it to create `deploy-proof.json` | NOT RUN |
 | CodeQL | GitHub Actions workflow | Workflow added; no hosted workflow result available in this environment | NOT RUN |
+| Launch readiness | Backend tests for `GET /api/public/readiness` with `PUBLIC_AI_ENABLED=true` | G1–G7 fail closed; G8 strict verification passes; public AI remains disabled | PASS (guard behavior only) |
+| Docker image smoke | `docker build -t patchpilot-backend ./backend` and container health/sample calls | Docker CLI unavailable locally; CI job added but no hosted result captured | NOT RUN |
+| PowerShell proof scripts | PowerShell parser for `scripts/check-deploy.ps1` and `scripts/launch-check.ps1` | Both scripts parse successfully; network probes not executed here | PASS (syntax only) |
+| Build version | `npm.cmd run build` then inspect generated `frontend/public/version.json` | Commit and build timestamp generated; footer reads the JSON | PASS (frontend build only) |
 | Live Meta, repository execution, proof-bundle verification, benchmark, deployed Playwright | Requires a live provider key, isolated runner, reachable deployment, and/or hosted CI | No output captured; no result claimed | NOT RUN |
 
-The probe script writes `deploy-proof.json` locally; it is gitignored because it can contain full HTTP response bodies. The script sends no credentials. Review the evidence file before sharing it.
+The probe script writes `deploy-proof.json` locally; it is gitignored because it can contain full HTTP response bodies. The launch script writes `launch-proof.json` and treats Launch 0 (G1/G2) separately from public AI enablement. Both scripts send no credentials. Review evidence files before sharing them.
 
 The first post-push live probes were blocked by outbound network connectivity in this environment. No post-push HTTP result is available; the earlier Vercel 404 and Render timeout remain the last actual HTTP responses.
 

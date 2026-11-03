@@ -4,7 +4,6 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.database import init_db
-from app.services.reporting import EvidenceReporter
 
 
 @pytest.fixture(autouse=True)
@@ -44,6 +43,9 @@ def test_evidence_report_lifecycle(client):
     report = report_resp.json()
     assert report["project"]["id"] == proj_id
     assert "verification_evidence" in report
+    assert report["verification_evidence"]["execution_environment"] == "none"
+    assert report["verification_evidence"]["trust_level"] == "unverified"
+    assert report["verification_evidence"]["reproducing_test_ids"] == []
     assert "timeline" in report
 
     # 7. Check Secret Redaction in Report
@@ -55,6 +57,7 @@ def test_evidence_report_lifecycle(client):
     md_resp = client.get(f"/api/projects/{proj_id}/report?format=markdown")
     assert md_resp.status_code == 200
     assert "# PatchPilot Verification Report" in md_resp.text
+    assert "**Trust**" in md_resp.text
 
     # 9. Fetch Audit Timeline
     timeline_resp = client.get(f"/api/projects/{proj_id}/timeline")

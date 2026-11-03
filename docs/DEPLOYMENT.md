@@ -2,7 +2,7 @@
 
 ## What the available evidence says
 
-On 3 November 2026, the supplied Vercel production URL returned HTTP 404 (`NOT_FOUND`) and the supplied Render `/api/health` request timed out without an HTTP response. After commit `00db54e` was pushed, the local environment could not reach either host, so no post-push deployment result was captured. The hosting root cause is **not confirmed**: there is no access to the Vercel or Render project dashboard, deployment logs, or current service environment.
+On 3 November 2026, the supplied Vercel production URL returned HTTP 404 (`NOT_FOUND`) and the supplied Render `/api/health` request timed out without an HTTP response. After the subsequent GitHub push, the local environment could not reach either host, so no post-push deployment result was captured. The hosting root cause is **not confirmed**: there is no access to the Vercel or Render project dashboard, deployment logs, or current service environment.
 
 The source-side routing issue that was confirmed has been corrected: `frontend/vercel.json` now sends `/api/*` to `https://patchpilot-rurc.onrender.com/api/*`, with the SPA fallback after that rewrite. This does not establish that Vercel's production project builds from this configuration. A Vercel 404 may indicate a project root/build/output/domain issue, but that is a hypothesis until its deployment settings and build log are inspected.
 
@@ -25,7 +25,9 @@ No dashboard setting has been changed or verified from this workspace. If the cu
 
 Inspect the existing service `srv-dbkd5icipgvc73c80080` (do not create a duplicate) and capture the build/start log. The repository Dockerfile starts Uvicorn on `0.0.0.0:${PORT:-8000}`; the configured Render health path is `/api/health`. Confirm the Docker image built, the service started with Render's assigned `PORT`, and required variable **names** are present. Never copy secret values into logs or this repository.
 
-`/api/health` checks database connectivity and returns cached provider configuration only; it does not call Meta. A free instance may need time to wake, so the owner-run probe allows 120 seconds. The SQLite database directory is `/app/database` in the container and is writable by the non-root app user, but Render Free storage is ephemeral; no persistent disk or durable production database has been established. Sample data is loaded through the explicit sample-project action, not silently seeded at startup.
+`/api/health` is constant-time and does not access the database, filesystem, or Meta. `/api/health/deep` separately checks database connectivity and cached provider configuration. A free instance may need time to wake, so the owner-run probe allows 120 seconds. The SQLite database directory is `/app/database` in the container and is writable by the non-root app user, but Render Free storage is ephemeral; no persistent disk or durable production database has been established. Sample data is loaded through the explicit sample-project action, not silently seeded at startup.
+
+The Docker build context is `./backend`. The sample source now lives under `backend/app/sample_data`, which is included by `COPY app ./app`; the CI smoke-test workflow builds this exact context and POSTs `/api/projects/load-sample`.
 
 The frontend retries health requests with increasing delays and keeps start actions disabled until the backend responds. An external keep-warm monitor is optional; configure one only if you accept the plan's availability and usage implications. A keep-warm ping does not make ephemeral storage durable.
 
@@ -38,6 +40,8 @@ From PowerShell at the repository root, run:
 ```
 
 It probes direct Render health (up to 120 seconds), Vercel root, a deep SPA route, Vercel-proxied health, and direct Render CORS from a foreign origin. It writes timestamped status, elapsed time, headers, response bodies, and the CORS decision to `deploy-proof.json` without sending credentials. Review the generated file before sharing it. It is local evidence and is intentionally not committed by default.
+
+Run `./scripts/launch-check.ps1` to save `launch-proof.json` from `/api/public/readiness`. It exits successfully for Launch 0 only when G1 and G2 pass. A successful Launch 0 check does not turn on AI; `PUBLIC_AI_ENABLED` stays ineffective until every gate passes. Current readiness is blocked because no deployed proof or Docker image smoke result is available, and gates G3–G7 remain unimplemented/unverified.
 
 Acceptance requires HTTP 200 from direct Render health, Vercel `/`, a deep Vercel route, and Vercel `/api/health`, plus no `Access-Control-Allow-Origin` for the foreign origin. If any check fails, inspect the corresponding Vercel deployment log or Render service log and record the exact log line and setting changed here. Do not label a guessed cause as the fix.
 

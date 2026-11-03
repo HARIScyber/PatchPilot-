@@ -27,6 +27,8 @@ class PytestResult:
     is_timeout: bool = False
     execution_unavailable: bool = False
     details: Optional[Dict[str, Any]] = None
+    test_results: Optional[Dict[str, str]] = None
+    structured_report: bool = False
 
 
 class PytestRunner:
@@ -78,13 +80,28 @@ class PytestRunner:
 
         # Parse only pytest's machine-readable report; never infer counts from human output.
         total = passed_count = failed_count = None
+        test_results: Dict[str, str] = {}
+        structured_report = False
         try:
             root = ET.parse(report_path).getroot()
+            structured_report = True
             suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
             total = sum(int(suite.attrib.get("tests", 0)) for suite in suites)
             failed_count = sum(int(suite.attrib.get("failures", 0)) + int(suite.attrib.get("errors", 0)) for suite in suites)
             skipped = sum(int(suite.attrib.get("skipped", 0)) for suite in suites)
             passed_count = max(0, total - failed_count - skipped)
+            for case in root.iter("testcase"):
+                classname = case.attrib.get("classname", "")
+                name = case.attrib.get("name", "")
+                if not name:
+                    continue
+                test_id = f"{classname}::{name}" if classname else name
+                if case.find("failure") is not None or case.find("error") is not None:
+                    test_results[test_id] = "failed"
+                elif case.find("skipped") is not None:
+                    test_results[test_id] = "skipped"
+                else:
+                    test_results[test_id] = "passed"
         except (OSError, ET.ParseError, ValueError):
             pass
 
@@ -99,6 +116,8 @@ class PytestRunner:
             failed_tests=failed_count,
             is_timeout=is_timeout,
             execution_unavailable=(exit_code == -126),
+            test_results=test_results if structured_report else None,
+            structured_report=structured_report,
         )
 
 

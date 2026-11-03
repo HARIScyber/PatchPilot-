@@ -19,6 +19,7 @@ from ..models.patch import Patch
 from ..models.project import Project
 from ..models.repair_plan import RepairPlan
 from ..services.patcher import Patcher, PatchValidationError
+from ..services.launch_readiness import public_ai_is_ready
 from ..services.repo_manager import RepoManager
 from ..services.repair_planner import RepairPlanner
 from ..services.test_generator import RegressionTestGenerator
@@ -34,7 +35,7 @@ test_gen = RegressionTestGenerator()
 
 def _require_supported_demo_project(project: Project) -> None:
     settings = get_settings()
-    if settings.APP_MODE == "public_demo" and not settings.PUBLIC_DEMO_ENABLED:
+    if settings.APP_MODE == "public_demo" and not public_ai_is_ready(settings):
         raise HTTPException(status_code=503, detail={"error_code": "PUBLIC_DEMO_DISABLED",
             "message": "Public repair runs are temporarily disabled."})
     if (settings.DEMO_MODE or settings.APP_MODE == "public_demo") and not project.is_sample:

@@ -1,6 +1,5 @@
 """Automated test suite for Phase 5: Sandbox execution, verification engine, and bounded self-repair loop."""
 import os
-from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
@@ -8,7 +7,6 @@ from app.main import app
 from app.database import init_db
 from app.security.sandbox import get_sanitized_env, run_sandboxed_command
 from app.services.test_runner import TestRunner
-from app.services.verification_engine import VerificationEngine
 from app.services.repair_loop import RepairLoopOrchestrator
 
 

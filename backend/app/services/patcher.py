@@ -20,6 +20,20 @@ class PatchValidationError(Exception):
     pass
 
 
+def _protected_target_reason(relative_path: str) -> Optional[str]:
+    normalized = Path(relative_path).as_posix()
+    parts = Path(normalized).parts
+    filename = Path(normalized).name.lower()
+    if any(part.lower() in {"test", "tests"} for part in parts) or filename.startswith("test_"):
+        return "Edits to existing test files are disallowed."
+    if (normalized.startswith((".github/", ".gitlab/", ".circleci/")) or filename in {
+            "pyproject.toml", "pytest.ini", "tox.ini", "requirements.txt",
+            "package.json", "package-lock.json", "dockerfile", "config.py", "settings.py"}
+            or Path(normalized).suffix.lower() in {".yml", ".yaml", ".toml", ".ini"}):
+        return "Edits to configuration or CI files are disallowed."
+    return None
+
+
 class Patcher:
     """Manages patch generation, unified diff parsing, AST verification, and application."""
 
@@ -52,14 +66,9 @@ class Patcher:
             if not target.is_file():
                 raise PatchValidationError(f"Edit target does not exist: {relative}")
             rel = target.relative_to(root).as_posix()
-            parts = Path(rel).parts
-            name = Path(rel).name.lower()
-            if any(part.lower() in {"test", "tests"} for part in parts) or name.startswith("test_"):
-                raise PatchValidationError(f"Edits to existing test files are disallowed: {rel}")
-            if (rel.startswith(".github/") or name in {"pyproject.toml", "pytest.ini", "tox.ini",
-                    "requirements.txt", "package.json", "package-lock.json", "dockerfile"}
-                    or Path(rel).suffix.lower() in {".yml", ".yaml", ".toml", ".ini"}):
-                raise PatchValidationError(f"Edits to configuration or CI files are disallowed: {rel}")
+            protected_reason = _protected_target_reason(rel)
+            if protected_reason:
+                raise PatchValidationError(f"{protected_reason} Target: {rel}")
             original_bytes = target.read_bytes()
             encoding = "utf-8-sig" if original_bytes.startswith(b"\xef\xbb\xbf") else "utf-8"
             try:
@@ -109,6 +118,27 @@ class Patcher:
                 imports.add(node.module.split(".")[0])
         return imports
 
+    @classmethod
+    def _validate_python_change(cls, original: str, updated: str, relative_path: str) -> None:
+        before = ast.parse(original, filename=relative_path)
+        after = ast.parse(updated, filename=relative_path)
+        if sum(isinstance(node, ast.Assert) for node in ast.walk(after)) < sum(
+                isinstance(node, ast.Assert) for node in ast.walk(before)):
+            raise PatchValidationError("Patch may not remove existing Python assertions.")
+        forbidden = {"subprocess", "socket", "requests", "httpx", "urllib",
+                     "multiprocessing", "pty", "ftplib", "telnetlib"}
+        if (cls._python_imports(after) - cls._python_imports(before)) & forbidden:
+            raise PatchValidationError("Patch introduces a process or network import.")
+        def system_calls(tree: ast.AST) -> int:
+            return sum(isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                       and isinstance(node.func.value, ast.Name) and node.func.value.id == "os"
+                       and node.func.attr == "system" for node in ast.walk(tree))
+        if system_calls(after) > system_calls(before):
+            raise PatchValidationError("Patch may not introduce os.system calls.")
+        pattern = re.compile(r"\bif\s+(?:input|value|arg|argument)\s*==\s*(['\"]).*?\1")
+        if pattern.search(updated) and not pattern.search(original):
+            raise PatchValidationError("Literal-specific input special-casing is disallowed.")
+
     @staticmethod
     def resolve_target_file(workspace: Path, relative_path: str) -> Path:
         """Resolve a repository path and ensure it remains inside the workspace."""
@@ -132,6 +162,9 @@ class Patcher:
         proposed_changes: list[str],
     ) -> str:
         """Prompt Meta AI to generate a unified diff for the defect."""
+        protected_reason = _protected_target_reason(target_file_rel)
+        if protected_reason:
+            raise PatchValidationError(protected_reason)
         workspace = self.repo_manager.get_workspace_dir(project_id)
         target_file = self.resolve_target_file(workspace, target_file_rel)
         if not target_file.exists():
@@ -192,6 +225,9 @@ class Patcher:
         """
         headers = [line for line in diff_content.splitlines() if line.startswith(("--- ", "+++ "))]
         expected_path = Path(expected_target_file).as_posix()
+        protected_reason = _protected_target_reason(expected_path)
+        if protected_reason:
+            return False, protected_reason, ""
         old_headers = [line[4:].split("\t", 1)[0].strip() for line in headers if line.startswith("--- ")]
         new_headers = [line[4:].split("\t", 1)[0].strip() for line in headers if line.startswith("+++ ")]
         if len(old_headers) != 1 or len(new_headers) != 1:
@@ -225,7 +261,7 @@ class Patcher:
 
             # Check Python AST syntax of patched code
             if expected_target_file.endswith(".py"):
-                ast.parse(patched_code, filename=expected_target_file)
+                self._validate_python_change(original_text, patched_code, expected_target_file)
 
             return True, None, patched_code
 

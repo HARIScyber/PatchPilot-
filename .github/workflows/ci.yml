@@ -16,7 +16,7 @@ jobs:
           cache-dependency-path: backend/requirements.txt
       - run: python -m pip install -r requirements.txt
         working-directory: backend
-      - run: python -m ruff check app
+      - run: python -m ruff check app tests
         working-directory: backend
       - run: python -m pytest tests -v
         working-directory: backend
@@ -29,6 +29,33 @@ jobs:
         with:
           python-version: '3.11'
       - run: python scripts/credential-scan.py
+
+  backend-docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build backend image
+        run: docker build -t patchpilot-backend ./backend
+      - name: Start backend container
+        run: docker run -d --rm -p 8000:8000 -e PORT=8000 --name patchpilot-smoke patchpilot-backend
+      - name: Check health and packaged sample
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'docker rm -f patchpilot-smoke >/dev/null 2>&1 || true' EXIT
+          ready=0
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:8000/api/health >/tmp/health.json; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" -eq 1
+          cat /tmp/health.json
+          curl --fail --silent --show-error -X POST http://127.0.0.1:8000/api/projects/load-sample >/tmp/sample.json
+          cat /tmp/sample.json
+          python -c "import json; p=json.load(open('/tmp/sample.json')); assert p['file_count'] >= 3; print('Bundled sample files:', p['file_count'])"
 
   frontend:
     runs-on: ubuntu-latest

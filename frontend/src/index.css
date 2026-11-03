@@ -47,6 +47,8 @@ select option { color: var(--text); background: var(--surface); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 
 .launch-shell { min-height: 100vh; background: var(--bg); color: var(--text); }
+.build-info { width: 100%; color: var(--muted); text-align: right; font: 10px/1.5 ui-monospace, monospace; }
+.launch-status { max-width: 1130px; margin: 0 auto 24px; padding: 14px 18px; border: 1px solid var(--warning); border-radius: 10px; background: color-mix(in srgb, var(--warning), transparent 92%); color: var(--text); font-size: 13px; line-height: 1.6; }
 .launch-header { max-width: 1240px; height: 76px; padding: 0 34px; margin: auto; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid color-mix(in srgb, var(--border), transparent 45%); }
 .launch-brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-size: 19px; font-weight: 700; letter-spacing: -.6px; }
 .launch-mark { height: 32px; width: 32px; display: grid; place-items: center; border-radius: 10px; color: white; background: var(--primary); }

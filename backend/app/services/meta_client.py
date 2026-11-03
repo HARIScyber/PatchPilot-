@@ -14,6 +14,7 @@ import httpx
 from ..core.config import get_settings
 from ..database import engine
 from sqlalchemy import text
+from .launch_readiness import public_ai_is_ready
 
 logger = logging.getLogger("patchpilot.services.meta_client")
 _shared_http_client = None
@@ -196,7 +197,7 @@ class MetaClient:
         max_tokens: int = 4096,
     ) -> Dict[str, Any]:
         """Send chat completion request to Meta API or return mock if explicitly in DEMO_MODE."""
-        if self.settings.APP_MODE == "public_demo" and not self.settings.PUBLIC_DEMO_ENABLED:
+        if self.settings.APP_MODE == "public_demo" and not public_ai_is_ready(self.settings):
             raise MetaAPIError("Public demo is temporarily disabled.", provider_status="PUBLIC_DEMO_DISABLED")
         if self.settings.APP_MODE == "public_demo":
             max_tokens = min(max_tokens, self.settings.PUBLIC_MAX_TOKENS_PER_CALL)

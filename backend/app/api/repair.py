@@ -6,7 +6,7 @@ import logging
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -29,6 +29,7 @@ repair_loop = RepairLoopOrchestrator()
 
 class VerifyRequest(BaseModel):
     test_command_target: str = "tests"
+    reproducing_test_ids: list[str] = Field(default_factory=list, max_length=100)
 
 
 class RepairLoopRequest(BaseModel):
@@ -67,6 +68,7 @@ def verify_patch_endpoint(
         diff_content=patch.diff_content,
         regression_test_code=reg_code,
         test_command_target=req.test_command_target,
+        reproducing_test_ids=req.reproducing_test_ids,
     )
 
     verif_status = results.get("verification_status", "NOT_VERIFIED")
@@ -109,6 +111,11 @@ def verify_patch_endpoint(
     return {
         "id": run_record.id,
         "verification_status": run_record.verification_status,
+        "reason": results.get("reason"),
+        "reproducing_test_ids": results.get("reproducing_test_ids", []),
+        "affected_test_ids": results.get("affected_test_ids", []),
+        "execution_environment": results.get("execution_environment", "unknown"),
+        "trust_level": results.get("trust_level", "unverified"),
         "baseline_passed": run_record.baseline_passed,
         "baseline_exit_code": run_record.baseline_exit_code,
         "patched_passed": run_record.patched_passed,

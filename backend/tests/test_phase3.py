@@ -1,13 +1,10 @@
 """Automated test suite for Phase 3: Repository intake, security, AST analysis, and localization."""
-import io
-import os
 import zipfile
-from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.database import init_db, get_db
+from app.database import init_db
 from app.security.zip_validator import validate_and_extract_zip, ZipSecurityError
 from app.services.static_analyzer import analyze_python_file
 from app.services.localization import BugLocalizer
@@ -45,6 +42,16 @@ def test_safe_zip_extraction(tmp_path):
     files = validate_and_extract_zip(valid_zip, target_dir)
     assert len(files) == 2
     assert (target_dir / "module" / "main.py").exists()
+
+
+def test_bundled_sample_loader_returns_structured_error_when_missing(client, monkeypatch, tmp_path):
+    from app.api import projects
+
+    monkeypatch.setattr(projects, "SAMPLE_PROJECT_DIRECTORY", tmp_path / "missing-sample")
+    response = client.post("/api/projects/load-sample")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["error_code"] == "SAMPLE_NOT_FOUND"
 
 
 def test_ast_mutable_default_detection(tmp_path):
@@ -99,6 +106,7 @@ def test_project_api_lifecycle(client):
     data = resp.json()
     project_id = data["id"]
     assert "Calculator" in data["name"]
+    assert data["file_count"] >= 3
 
     # 2. Get file tree
     files_resp = client.get(f"/api/projects/{project_id}/files")
@@ -106,6 +114,7 @@ def test_project_api_lifecycle(client):
     files = files_resp.json()
     file_paths = [f["path"] for f in files]
     assert any("calculator.py" in p for p in file_paths)
+    assert any("test_calculator.py" in p for p in file_paths)
 
     # 3. Read file content
     content_resp = client.get(f"/api/projects/{project_id}/files/content?path=core/calculator.py")

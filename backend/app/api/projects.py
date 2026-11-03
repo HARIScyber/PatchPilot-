@@ -25,6 +25,7 @@ from ..services.static_analyzer import analyze_repository
 logger = logging.getLogger("patchpilot.api.projects")
 router = APIRouter()
 repo_manager = RepoManager()
+SAMPLE_PROJECT_DIRECTORY = Path(__file__).resolve().parent.parent / "sample_data" / "calculator_bug"
 
 
 def _require_bundled_sample(project: Project) -> None:
@@ -176,12 +177,20 @@ def upload_repository_zip(
 def load_sample_project(db: Session = Depends(get_db)):
     """One-click demo loader: unpacks sample buggy calculator project."""
     project_id = str(uuid4())
-    # Locate sample zip
-    sample_zip = Path(__file__).resolve().parent.parent.parent.parent / "sample_projects" / "calculator_bug.zip"
-    if not sample_zip.exists():
-        raise HTTPException(status_code=500, detail="Sample project archive not found on server.")
-
-    extracted_info = repo_manager.unpack_archive(project_id, sample_zip)
+    if not SAMPLE_PROJECT_DIRECTORY.is_dir():
+        raise HTTPException(status_code=503, detail={
+            "error_code": "SAMPLE_NOT_FOUND",
+            "message": "The bundled sample project is unavailable in this deployment.",
+        })
+    try:
+        extracted_info = repo_manager.copy_bundled_directory(project_id, SAMPLE_PROJECT_DIRECTORY)
+    except (OSError, ValueError) as exc:
+        logger.error("Bundled sample could not be loaded (%s).", type(exc).__name__)
+        repo_manager.delete_workspace(project_id)
+        raise HTTPException(status_code=500, detail={
+            "error_code": "SAMPLE_LOAD_FAILED",
+            "message": "The bundled sample project could not be prepared.",
+        }) from exc
 
     project = Project(
         id=project_id,

@@ -61,6 +61,22 @@ def test_public_config_has_no_credentials_and_reports_execution_mode(public_sett
     assert "MODEL_API_KEY" not in response.text
 
 
+def test_launch_readiness_fails_closed_and_disables_public_ai(public_settings):
+    config.get_settings().PUBLIC_AI_ENABLED = True
+    with TestClient(app) as client:
+        response = client.get("/api/public/readiness")
+        action = client.post("/api/providers/meta/test")
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["status"] == "blocked"
+    assert payload["public_ai_enabled"] is False
+    assert {gate["id"] for gate in payload["gates"]} == {f"G{i}" for i in range(1, 9)}
+    assert all(gate["status"] == "fail" for gate in payload["gates"] if gate["id"] != "G8")
+    assert next(gate for gate in payload["gates"] if gate["id"] == "G8")["status"] == "pass"
+    assert action.status_code == 503
+    assert action.json()["error_code"] == "PUBLIC_DEMO_DISABLED"
+
+
 def test_public_stats_returns_only_database_aggregate_counts(public_settings):
     with TestClient(app) as client:
         response = client.get("/api/public/stats")
@@ -104,10 +120,32 @@ def test_health_routes_do_not_expose_internal_database_details():
         database = client.get("/api/health/database")
         ready = client.get("/api/health/ready")
     assert health.status_code == 200
-    assert health.json()["database"]["status"] in {"ok", "unavailable"}
-    assert "engine" not in health.json()["database"]
+    assert "version" in health.json()
     assert "sqlite" not in health.text.lower()
+    assert "database" not in health.json()
     assert database.status_code in {200, 503}
     assert "detail" not in database.json()
     assert ready.status_code in {200, 503}
     assert "EXECUTION_UNAVAILABLE" == ready.json()["execution_status"]
+
+
+def test_basic_health_does_not_touch_database_or_provider(monkeypatch):
+    from app import main
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("basic health must not access dependencies")
+
+    monkeypatch.setattr(main, "check_db_health", forbidden)
+    monkeypatch.setattr(main, "get_cached_meta_status", forbidden)
+    with TestClient(app) as client:
+        response = client.get("/api/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+
+def test_deep_health_checks_database_but_does_not_expose_database_details():
+    with TestClient(app) as client:
+        response = client.get("/api/health/deep")
+    assert response.status_code in {200, 503}
+    assert response.json()["database"] in {"ok", "unavailable"}
+    assert "sqlite" not in response.text.lower()

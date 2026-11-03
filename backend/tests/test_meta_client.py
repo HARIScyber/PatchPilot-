@@ -1,6 +1,4 @@
 """Deterministic tests for the Meta Model API adapter (no live credentials used)."""
-import asyncio
-
 import pytest
 
 from app.core.config import Settings

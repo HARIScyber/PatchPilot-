@@ -41,6 +41,14 @@ class EvidenceReporter:
         latest_patch = (next((p for p in patches if p.id == latest_run.patch_id), None)
                         if latest_run else (patches[0] if patches else None))
         latest_plan = plans[0] if plans else None
+        verification_details = {}
+        if latest_run and latest_run.details:
+            try:
+                parsed = json.loads(latest_run.details)
+                if isinstance(parsed, dict):
+                    verification_details = parsed
+            except (TypeError, ValueError):
+                logger.warning("Verification details for run %s are not valid JSON.", latest_run.id)
 
         # Build clean audit timeline
         timeline = [
@@ -115,6 +123,11 @@ class EvidenceReporter:
                 "verification_run_id": latest_run.id if latest_run else None,
                 "patch_id": latest_run.patch_id if latest_run else None,
                 "verification_status": latest_run.verification_status if latest_run else "NOT_VERIFIED",
+                "reason": verification_details.get("reason"),
+                "execution_environment": verification_details.get("execution_environment", "unknown"),
+                "trust_level": verification_details.get("trust_level", "unverified"),
+                "reproducing_test_ids": verification_details.get("reproducing_test_ids", []),
+                "affected_test_ids": verification_details.get("affected_test_ids", []),
                 "baseline_execution": {
                     "passed": latest_run.baseline_passed if latest_run else None,
                     "exit_code": latest_run.baseline_exit_code if latest_run else None,
@@ -169,6 +182,9 @@ class EvidenceReporter:
             *fenced(patch.get("diff_content") or "# No patch diff available", "diff"),
             "",
             "## 4. Execution Sandbox Evidence",
+            f"- **Trust**: `{verif.get('trust_level', 'unverified')}` on `{verif.get('execution_environment', 'unknown')}`",
+            f"- **Reproducing tests**: `{', '.join(verif.get('reproducing_test_ids', [])) or 'none recorded'}`",
+            f"- **Verification reason**: `{verif.get('reason') or 'not recorded'}`",
             f"- **Baseline Run**: Exit Code `{verif.get('baseline_execution', {}).get('exit_code')}` (Passed: `{verif.get('baseline_execution', {}).get('passed')}`)",
             f"- **Patched Run**: Exit Code `{verif.get('patched_execution', {}).get('exit_code')}` (Passed: `{verif.get('patched_execution', {}).get('passed')}`)",
             f"- **Execution Duration**: `{verif.get('patched_execution', {}).get('duration_seconds')}s`",

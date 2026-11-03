@@ -146,6 +146,11 @@ export interface EvidenceReport {
   };
   verification_evidence: {
     verification_status: string;
+    reason?: string;
+    execution_environment?: string;
+    trust_level?: string;
+    reproducing_test_ids?: string[];
+    affected_test_ids?: string[];
     baseline_execution: {
       passed?: boolean;
       exit_code?: number;

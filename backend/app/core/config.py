@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     PUBLIC_DAILY_META_CALL_CAP: int = Field(default=200, ge=0)
     PUBLIC_MAX_ATTEMPTS: int = Field(default=3, ge=1, le=3)
     PUBLIC_MAX_TOKENS_PER_CALL: int = Field(default=2048, ge=1, le=2048)
+    PUBLIC_AI_ENABLED: bool = Field(default=False)
     PUBLIC_DEMO_ENABLED: bool = Field(default=False)
 
     # ── Sandbox Isolation Policy ────────────────────────────────────

@@ -31,3 +31,5 @@ services:
         sync: false
       - key: PUBLIC_DEMO_ENABLED
         sync: false
+      - key: PUBLIC_AI_ENABLED
+        sync: false

@@ -129,6 +129,31 @@ class RepoManager:
             "size_bytes": total_size,
         }
 
+    def copy_bundled_directory(self, project_id: str, source_path: Path | str) -> Dict[str, Any]:
+        """Copy trusted, packaged sample source into a fresh project workspace."""
+        source = Path(source_path).resolve()
+        if not source.is_dir():
+            raise FileNotFoundError("Bundled sample directory is unavailable.")
+        workspace = self.create_workspace(project_id)
+        try:
+            for item in source.iterdir():
+                if item.is_symlink():
+                    raise ValueError("Bundled sample must not contain symlinks.")
+                destination = workspace / item.name
+                if item.is_dir():
+                    shutil.copytree(item, destination)
+                else:
+                    shutil.copy2(item, destination)
+            files = [path for path in workspace.rglob("*") if path.is_file()]
+            return {
+                "workspace_path": str(workspace),
+                "file_count": len(files),
+                "size_bytes": sum(path.stat().st_size for path in files),
+            }
+        except Exception:
+            self.delete_workspace(project_id)
+            raise
+
     def get_file_tree(self, project_id: str) -> List[Dict[str, Any]]:
         """Return a structured tree of files inside the project workspace."""
         workspace = self.get_workspace_dir(project_id)

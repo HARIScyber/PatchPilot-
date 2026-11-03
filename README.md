@@ -22,7 +22,7 @@ These are the owner-provided production URLs. As of 3 November 2026, the fronten
 - ZIP path/size checks and patch validation; human approval is required before applying a patch.
 - Evidence/report records distinguish model proposals from actual test results.
 
-Not implemented: authentication, multi-user data isolation, browser/Pyodide test execution, real-time run streaming, durable share links, feedback storage, automatic retention, or durable daily/monthly token-cost budgets. SQLite is the default and is not durable on Render Free.
+Not implemented: authentication, multi-user data isolation, browser/Pyodide test execution, real-time run streaming, durable share links, feedback storage, automatic retention, or durable daily/monthly token-cost budgets. SQLite is the default and is not durable on Render Free. Do not submit private, proprietary, or confidential repositories.
 
 ## Architecture and stack
 
@@ -31,6 +31,8 @@ The browser calls same-origin `/api`. Vite proxies `/api` to FastAPI during loca
 Technologies: Python 3.11, FastAPI, Pydantic Settings, SQLAlchemy, SQLite, React 18, TypeScript, Vite, Tailwind CSS, and Meta Model API.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md), [the project inventory](docs/PROJECT_INVENTORY.md), and [the production audit](docs/PRODUCTION_AUDIT.md).
+
+Public AI is controlled by the `PUBLIC_AI_ENABLED` master switch and remains disabled until all eight launch-readiness gates pass. See [the launch gates](docs/DEPLOYMENT.md). The public demo is not currently launch-ready: hosting and Docker image checks still need owner-side evidence.
 
 ## Local installation
 

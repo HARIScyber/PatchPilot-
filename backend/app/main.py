@@ -21,6 +21,7 @@ from .api import patches, projects, repair
 from .core.config import get_settings
 from .database import check_db_health, engine, init_db
 from .services.meta_client import MetaAPIError, MetaClient, set_shared_http_client
+from .services.launch_readiness import evaluate_launch_gates, public_ai_is_ready
 from .models.project import Project
 from .models.verification_run import VerificationRun
 
@@ -30,6 +31,27 @@ logger = logging.getLogger("patchpilot")
 meta_client = MetaClient()
 _meta_status_cache = {"expires": 0.0, "value": None}
 _public_request_times = defaultdict(deque)
+
+
+def _load_build_info():
+    """Read build metadata once at import so the liveness route does no I/O."""
+    version_file = Path(__file__).resolve().parent / "version.json"
+    try:
+        with version_file.open("r", encoding="utf-8") as file:
+            value = json.load(file)
+        if isinstance(value, dict):
+            return {"commit": str(value.get("commit", "unknown"))[:40],
+                    "branch": str(value.get("branch", "unknown"))[:80],
+                    "build_date": str(value.get("build_date", "unknown"))[:40]}
+    except (OSError, ValueError):
+        pass
+    import os
+    return {"commit": os.getenv("RENDER_GIT_COMMIT", "unknown")[:40],
+            "branch": os.getenv("RENDER_GIT_BRANCH", "unknown")[:80],
+            "build_date": "unknown"}
+
+
+BUILD_INFO = _load_build_info()
 
 
 @asynccontextmanager
@@ -90,9 +112,9 @@ async def add_security_headers(request: Request, call_next):
         protected = (request.url.path.endswith(("/repair-plan", "/patches/generate",
             "/generate-tests", "/repair-loop", "/providers/meta/test")) and request.method == "POST")
         if protected:
-            if not settings.PUBLIC_DEMO_ENABLED:
+            if not public_ai_is_ready(settings):
                 return JSONResponse(status_code=503, content={"error_code": "PUBLIC_DEMO_DISABLED",
-                    "message": "Public Meta-powered actions are temporarily disabled."})
+                    "message": "Public AI actions are disabled until every launch gate passes."})
             address = request.client.host if request.client else "unknown"
             key = hashlib.sha256(address.encode("utf-8")).hexdigest()
             now = time.monotonic()
@@ -142,27 +164,34 @@ app.include_router(repair.router, prefix="/api", tags=["repairs"])
 
 
 @app.get("/api/health", tags=["health"])
-async def health_check():
-    """Basic health with sanitized dependency state; never return internal URLs or settings."""
+def health_check():
+    """Constant-time process health; does not access the database or provider."""
     settings = get_settings()
-    db_status = check_db_health().get("status")
-    meta_status = await get_cached_meta_status()
-    healthy = db_status == "ok"
     return {
-        "status": "ok" if healthy else "degraded",
+        "status": "ok",
         "app_mode": settings.APP_MODE,
         "demo_mode": settings.DEMO_MODE,
-        "database": {"status": "ok" if healthy else "unavailable"},
-        "meta_provider": {
-            "status": meta_status.get("status", "UNKNOWN"),
-            "connected": bool(meta_status.get("connected", False)),
-            "model_id": meta_status.get("model_id"),
-            "message": meta_status.get("message"),
-        },
+        "version": BUILD_INFO,
         "sandbox": {
             "execution_status": "EXECUTION_UNAVAILABLE",
         },
     }
+
+
+@app.get("/api/health/deep", tags=["health"])
+async def deep_health_check():
+    """Check database connectivity and cached provider configuration, without a Meta call."""
+    settings = get_settings()
+    db_status = check_db_health().get("status")
+    provider = await get_cached_meta_status()
+    healthy = db_status == "ok"
+    return JSONResponse(status_code=200 if healthy else 503, content={
+        "status": "ok" if healthy else "degraded",
+        "database": "ok" if healthy else "unavailable",
+        "provider_status": provider.get("status", "UNKNOWN"),
+        "demo_mode": settings.DEMO_MODE,
+        "execution_status": "EXECUTION_UNAVAILABLE",
+    })
 
 
 @app.get("/api/health/database", tags=["health"])
@@ -238,7 +267,24 @@ async def public_config():
         "daily_meta_calls_remaining": max(0, settings.PUBLIC_DAILY_META_CALL_CAP - calls_today),
         "max_attempts": settings.PUBLIC_MAX_ATTEMPTS,
         "max_tokens_per_call": settings.PUBLIC_MAX_TOKENS_PER_CALL,
-        "demo_enabled": settings.PUBLIC_DEMO_ENABLED}
+        "demo_enabled": settings.PUBLIC_DEMO_ENABLED,
+        "public_ai_enabled": public_ai_is_ready(settings)}
+
+
+@app.get("/api/public/readiness", tags=["public"])
+def public_readiness():
+    """Expose launch gates without secrets; unknown external evidence fails closed."""
+    settings = get_settings()
+    gates = evaluate_launch_gates(settings)
+    gates_pass = all(gate["status"] == "pass" for gate in gates)
+    ai_enabled = bool(settings.PUBLIC_AI_ENABLED and gates_pass)
+    launch_zero = all(gate["status"] == "pass" for gate in gates if gate["id"] in {"G1", "G2"})
+    return {
+        "status": "ready" if gates_pass else "blocked",
+        "launch_stage": "launch_0" if launch_zero else "not_ready",
+        "public_ai_enabled": ai_enabled,
+        "gates": gates,
+    }
 
 
 @app.get("/api/public/stats", tags=["public"])

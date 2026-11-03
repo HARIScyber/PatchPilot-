@@ -48,6 +48,7 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [health, setHealth] = useState<any>(null);
+  const [publicConfig, setPublicConfig] = useState<any>(null);
   const [serverReady, setServerReady] = useState(false);
   const [serverWaking, setServerWaking] = useState(true);
   const [wakeAttempt, setWakeAttempt] = useState(0);
@@ -103,6 +104,7 @@ export default function App() {
           setHealth(data);
           setServerReady(true);
           setServerWaking(false);
+          void api.fetchPublicConfig().then(setPublicConfig).catch(() => setPublicConfig(null));
           await loadProjects();
           return;
         } catch {
@@ -488,6 +490,8 @@ export default function App() {
         </span>
         <span className="text-slate-500">SQLite data may reset on free-host restarts. Do not submit personal or confidential data.</span>
       </div>
+
+      {health?.app_mode === 'public_demo' && !publicConfig?.public_ai_enabled && <div className="border-b border-amber-800 bg-amber-950/50 px-6 py-2 text-xs text-amber-200" role="status">Live AI is off while launch gates are incomplete. No live model calls are made from this workspace. Do not submit private or proprietary code.</div>}
 
       {/* Navigation Bar */}
       <nav className="border-b border-slate-800 bg-slate-900/30 px-6 flex items-center gap-1 overflow-x-auto text-xs font-medium">
@@ -1132,9 +1136,14 @@ export default function App() {
                       Report ID: {report.meta.report_id} | Provider: {report.meta.ai_provider}
                     </p>
                   </div>
-                  <span className="text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  <span className={`text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full border ${report.verification_evidence.verification_status === 'VERIFIED_AGAINST_DEFINED_TESTS' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : report.verification_evidence.verification_status === 'TESTS_FAILED' ? 'bg-rose-500/20 text-rose-300 border-rose-500/30' : 'bg-amber-500/20 text-amber-300 border-amber-500/30'}`}>
                     {report.verification_evidence.verification_status}
                   </span>
+                </div>
+                <div className="text-xs text-slate-400">
+                  Trust: <span className="font-mono">{report.verification_evidence.trust_level || 'unverified'}</span>
+                  {' · '}Environment: <span className="font-mono">{report.verification_evidence.execution_environment || 'unknown'}</span>
+                  {' · '}Reproducing tests: <span className="font-mono">{report.verification_evidence.reproducing_test_ids?.join(', ') || 'none recorded'}</span>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
