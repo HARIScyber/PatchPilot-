@@ -4,10 +4,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from sqlalchemy import Column, DateTime, ForeignKey, String, Text
 
-from ..database import Base
+from ..database import Base, OwnerScoped
 
 
-class GeneratedTest(Base):
+class GeneratedTest(OwnerScoped, Base):
     __tablename__ = "generated_tests"
 
     id = Column(String, primary_key=True, index=True)

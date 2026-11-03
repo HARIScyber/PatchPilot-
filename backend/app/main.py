@@ -19,11 +19,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .api import patches, projects, repair
 from .core.config import get_settings
-from .database import check_db_health, engine, init_db
+from .database import check_db_health, engine, ensure_schema_current
 from .services.meta_client import MetaAPIError, MetaClient, set_shared_http_client
 from .services.launch_readiness import evaluate_launch_gates, public_ai_is_ready
-from .models.project import Project
-from .models.verification_run import VerificationRun
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("patchpilot")
@@ -58,8 +56,18 @@ BUILD_INFO = _load_build_info()
 async def lifespan(app: FastAPI):
     """Application startup and shutdown lifecycle handler."""
     logger.info("Initializing PatchPilot database...")
-    init_db()
     settings = get_settings()
+    signing_secret = settings.SESSION_SIGNING_SECRET.get_secret_value()
+    if settings.APP_ENV.lower() == "production" and len(signing_secret) < 32:
+        raise RuntimeError("SESSION_SIGNING_SECRET must be configured with at least 32 characters in production.")
+    if settings.APP_ENV.lower() == "production" and engine.dialect.name != "postgresql":
+        raise RuntimeError("Production requires PostgreSQL; configure DATABASE_URL before startup.")
+    if settings.APP_ENV.lower() == "production":
+        ensure_schema_current()
+    else:
+        # Development / test mode: create / upgrade schema through Alembic only
+        from .database import run_alembic_upgrade_head
+        run_alembic_upgrade_head()
     if settings.APP_MODE == "public_demo" and settings.LLM_PROVIDER != "meta" and not settings.ALLOW_DEV_PROVIDER:
         raise RuntimeError("Public LIVE mode requires LLM_PROVIDER=meta unless ALLOW_DEV_PROVIDER=true.")
     shared_client = httpx.AsyncClient(timeout=httpx.Timeout(
@@ -97,11 +105,24 @@ app.add_middleware(
 )
 
 
+UPLOAD_ROUTE_RE = re.compile(r"^/api/projects/[^/]+/upload$")
+PROTECTED_AI_ROUTES = (
+    re.compile(r"^/api/projects/[^/]+/repair-plan$"),
+    re.compile(r"^/api/projects/[^/]+/patches/generate$"),
+    re.compile(r"^/api/patches/[^/]+/generate-tests$"),
+    re.compile(r"^/api/patches/[^/]+/repair-loop$"),
+    re.compile(r"^/api/providers/meta/test$"),
+    re.compile(r"^/api/providers/test$"),
+)
+
+
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     settings = get_settings()
     if settings.APP_MODE == "public_demo":
-        if request.url.path.endswith("/upload") and request.method == "POST":
+        # Normalize path by stripping repeated and trailing slashes so /upload and /upload/ behave identically
+        normalized_path = "/" + "/".join(segment for segment in request.url.path.split("/") if segment)
+        if UPLOAD_ROUTE_RE.fullmatch(normalized_path) and request.method == "POST":
             return JSONResponse(status_code=403, content={"error_code": "UPLOAD_DISABLED",
                 "message": "Repository uploads are disabled on the public demo."})
         try:
@@ -111,8 +132,7 @@ async def add_security_headers(request: Request, call_next):
         except ValueError:
             return JSONResponse(status_code=400, content={"error_code": "INVALID_CONTENT_LENGTH",
                 "message": "Invalid request size."})
-        protected = (request.url.path.endswith(("/repair-plan", "/patches/generate",
-            "/generate-tests", "/repair-loop", "/providers/meta/test", "/providers/test")) and request.method == "POST")
+        protected = any(pattern.fullmatch(normalized_path) for pattern in PROTECTED_AI_ROUTES) and request.method == "POST"
         if protected:
             if not public_ai_is_ready(settings):
                 return JSONResponse(status_code=503, content={"error_code": "PUBLIC_DEMO_DISABLED",
@@ -120,10 +140,19 @@ async def add_security_headers(request: Request, call_next):
             address = request.client.host if request.client else "unknown"
             key = hashlib.sha256(address.encode("utf-8")).hexdigest()
             now = time.monotonic()
+            # Evict expired timestamps across all keys and delete empty keys.
+            # NOTE: In-memory rate limits are per-instance and rely on the database counters for budgets.
+            stale_keys = [k for k, timestamps in _public_request_times.items()
+                          if not (timestamps and now - timestamps[-1] < 3600)]
+            for k in stale_keys:
+                _public_request_times.pop(k, None)
+
             attempts = _public_request_times[key]
             while attempts and now - attempts[0] >= 3600:
                 attempts.popleft()
-            if len(attempts) >= 12:
+            if not attempts:
+                _public_request_times.pop(key, None)
+            elif len(attempts) >= 12:
                 return JSONResponse(status_code=429, headers={"Retry-After": "3600"},
                     content={"error_code": "RATE_LIMITED", "message": "Public AI request limit reached."})
             attempts.append(now)
@@ -156,7 +185,8 @@ async def meta_error_handler(_request: Request, exc: MetaAPIError):
               "QUOTA_EXHAUSTED": 429, "RESPONSE_BLOCKED": 422, "OUTPUT_TRUNCATED": 502,
               "MODEL_NOT_FOUND": 400, "PROVIDER_UNAVAILABLE": 502, "MALFORMED_RESPONSE": 502,
               "DEMO_MODE": 503, "PUBLIC_DEMO_DISABLED": 503,
-              "PUBLIC_DAILY_CAP_EXHAUSTED": 429}.get(exc.provider_status, 502)
+              "PUBLIC_DAILY_CAP_EXHAUSTED": 429, "BUDGET_EXHAUSTED": 429,
+              "CONTEXT_TOO_LARGE": 413}.get(exc.provider_status, 502)
     return JSONResponse(status_code=status, content={"error_code": exc.provider_status,
         "message": f"{get_settings().LLM_PROVIDER.capitalize()} provider request failed.", "provider_status": exc.provider_status})
 
@@ -330,18 +360,31 @@ def public_readiness():
     }
 
 
+_public_stats_cache = {"expires": 0.0, "value": None}
+
+
 @app.get("/api/public/stats", tags=["public"])
 def public_stats():
-    """Expose aggregate counts from recorded database rows only."""
-    # Use the ORM for portable, read-only aggregate queries.
-    from .database import SessionLocal
-    with SessionLocal() as session:
-        run_count = session.query(VerificationRun).count()
-        verified_count = session.query(VerificationRun).filter(
-            VerificationRun.verification_status == "VERIFIED_AGAINST_DEFINED_TESTS"
-        ).count()
-        project_count = session.query(Project).count()
-    return {"projects": project_count, "runs": run_count, "verified_runs": verified_count}
+    """Expose aggregate counts from recorded database rows only (unscoped, cached ~60s)."""
+    global _public_stats_cache
+    now = time.monotonic()
+    if _public_stats_cache["value"] is not None and now < _public_stats_cache["expires"]:
+        return _public_stats_cache["value"]
+
+    with engine.connect() as conn:
+        run_count = conn.execute(text("SELECT count(*) FROM verification_runs")).scalar() or 0
+        verified_count = conn.execute(text(
+            "SELECT count(*) FROM verification_runs WHERE verification_status = 'VERIFIED_AGAINST_DEFINED_TESTS'"
+        )).scalar() or 0
+        project_count = conn.execute(text("SELECT count(*) FROM projects")).scalar() or 0
+
+    stats = {
+        "projects": int(project_count),
+        "runs": int(run_count),
+        "verified_runs": int(verified_count),
+    }
+    _public_stats_cache = {"expires": now + 60.0, "value": stats}
+    return stats
 
 
 @app.get("/api/evaluation/results", tags=["evaluation"])

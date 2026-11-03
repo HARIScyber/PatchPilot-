@@ -8,6 +8,7 @@ import {
   VerificationRun,
   AuditEvent,
   EvidenceReport,
+  EvaluationResults,
 } from '../types';
 
 // Browser requests stay same-origin: Vite proxies in development and Vercel
@@ -74,7 +75,7 @@ export async function fetchPublicStats(): Promise<{ projects: number; runs: numb
   return res.json();
 }
 
-export async function fetchEvaluationResults(): Promise<any> {
+export async function fetchEvaluationResults(): Promise<EvaluationResults> {
   const res = await request(`${BASE_URL}/evaluation/results`);
   if (!res.ok) throw new Error(`Evaluation report failed (HTTP ${res.status})`);
   return res.json();

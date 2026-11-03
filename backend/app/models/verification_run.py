@@ -4,10 +4,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
 
-from ..database import Base
+from ..database import Base, OwnerScoped
 
 
-class VerificationRun(Base):
+class VerificationRun(OwnerScoped, Base):
     __tablename__ = "verification_runs"
 
     id = Column(String, primary_key=True, index=True)

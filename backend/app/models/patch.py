@@ -4,10 +4,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Text
 
-from ..database import Base
+from ..database import Base, OwnerScoped
 
 
-class Patch(Base):
+class Patch(OwnerScoped, Base):
     __tablename__ = "patches"
 
     id = Column(String, primary_key=True, index=True)

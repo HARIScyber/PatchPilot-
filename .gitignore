@@ -4,8 +4,10 @@
 **/.env.*
 !.env.example
 !**/.env.example
-database/
-backend/database/
+/database/
+/backend/database/
+!/backend/app/database/
+**/database/*.db
 **/workspaces/
 __pycache__/
 *.py[cod]

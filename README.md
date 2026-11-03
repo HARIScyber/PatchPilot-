@@ -1,6 +1,6 @@
 # PatchPilot
 
-**Patches that carry their own proof.**
+**Patches that carry their own proof (in development).**
 
 [![CI](https://github.com/HARIScyber/PatchPilot-/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/HARIScyber/PatchPilot-/actions/workflows/ci.yml)
 
@@ -22,11 +22,11 @@ These are the owner-provided production URLs. As of 3 November 2026, the fronten
 - ZIP path/size checks and patch validation; human approval is required before applying a patch.
 - Evidence/report records distinguish model proposals from actual test results.
 
-Not implemented: authentication, multi-user data isolation, browser/Pyodide test execution, real-time run streaming, durable share links, feedback storage, automatic retention, or durable daily/monthly token-cost budgets. SQLite is the default and is not durable on Render Free. Do not submit private, proprietary, or confidential repositories.
+Not implemented: account authentication/recovery, opt-in share links, automatic retention, object storage for uploaded workspaces, browser/Pyodide execution, real-time run streaming, feedback storage, or durable provider budgets. Signed anonymous sessions scope records by browser session, but they are not accounts. SQLite is local-only; production startup now requires PostgreSQL, a configured session-signing secret, and current Alembic migrations. Do not submit private, proprietary, or confidential repositories.
 
 ## Architecture and stack
 
-The browser calls same-origin `/api`. Vite proxies `/api` to FastAPI during local development; Vercel rewrites `/api/*` to Render in production. FastAPI uses SQLAlchemy models and SQLite by default. The Meta key stays on the backend. The test runner currently fails closed before starting any repository subprocess.
+The browser calls same-origin `/api`. Vite proxies `/api` to FastAPI during local development; Vercel rewrites `/api/*` to Render in production. FastAPI uses SQLAlchemy and Alembic. SQLite is for local development only; production startup rejects SQLite and a database schema behind the migration head. Anonymous owner IDs are signed in HttpOnly cookies and ORM queries/writes are owner-scoped. The Meta key stays on the backend. The test runner currently fails closed before starting any repository subprocess.
 
 Technologies: Python 3.11, FastAPI, Pydantic Settings, SQLAlchemy, SQLite, React 18, TypeScript, Vite, Tailwind CSS, and Meta Model API.
 
@@ -77,9 +77,21 @@ The root [`.env.example`](.env.example) lists supported backend values. Importan
 - `APP_MODE`, `DEMO_MODE`, `PUBLIC_DEMO_ENABLED`: runtime mode and public action kill switch.
 - `EXECUTION_BACKEND`, `ENABLE_UPLOAD`, `ALLOWED_ORIGINS`: execution, uploads, and explicit CORS origins.
 - `DATABASE_URL`: SQLAlchemy database URL; SQLite is the default.
+- `SESSION_SIGNING_SECRET`: random signing secret, at least 32 characters in production; never put it in source control.
 - `MAX_REPAIR_ATTEMPTS` and `PUBLIC_MAX_ATTEMPTS`: bounded repair-loop settings.
 
 Frontend calls use `/api`; no production `VITE_API_BASE_URL` is needed. Production API routing is in [`frontend/vercel.json`](frontend/vercel.json).
+
+## Database setup and migrations
+
+For local development, copy `.env.example` to `backend/.env`, then run migrations from `backend`:
+
+```powershell
+Set-Location backend
+python -m alembic upgrade head
+```
+
+Production must set `DATABASE_URL` to a PostgreSQL connection string and `SESSION_SIGNING_SECRET` in the host secret settings. Run `python -m alembic upgrade head` as the release migration step before the new service starts. The app fails startup if PostgreSQL is absent, the production session secret is shorter than 32 characters, or the migration head is behind. Existing rows without an owner are assigned the quarantined `legacy-unclaimed` owner during migration and are not exposed to new sessions.
 
 ## Provider setup
 

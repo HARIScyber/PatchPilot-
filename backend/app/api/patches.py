@@ -20,6 +20,7 @@ from ..models.project import Project
 from ..models.repair_plan import RepairPlan
 from ..services.patcher import Patcher, PatchValidationError
 from ..services.launch_readiness import public_ai_is_ready
+from ..services.provider_ledger import enforce_atomic_budget, record_provider_call
 from ..services.repo_manager import RepoManager
 from ..services.repair_planner import RepairPlanner
 from ..services.test_generator import RegressionTestGenerator
@@ -52,6 +53,7 @@ class PlanRequest(BaseModel):
 class PatchGenerateRequest(BaseModel):
     plan_id: Optional[str] = None
     target_file: Optional[str] = None
+    edit_blocks: Optional[list[dict]] = None
 
 
 @router.post("/projects/{project_id}/repair-plan")
@@ -91,6 +93,7 @@ async def create_repair_plan(
         except Exception:
             pass
 
+    enforce_atomic_budget(owner_id=project.owner_id, estimated_tokens=800)
     plan = await planner.generate_plan(
         project_id=project_id,
         bug_description=desc,
@@ -124,6 +127,15 @@ async def create_repair_plan(
 
     db.commit()
     db.refresh(plan_record)
+    record_provider_call(
+        owner_id=project.owner_id,
+        provider=get_settings().LLM_PROVIDER,
+        stage="plan",
+        model=get_settings().META_MODEL_ID,
+        prompt=desc,
+        response_text=plan.problem_summary,
+        plan_id=plan_record.id,
+    )
 
     return {
         "id": plan_record.id,
@@ -177,14 +189,22 @@ async def generate_patch(
         raise HTTPException(status_code=400, detail=str(err)) from err
     orig_hash = patcher.compute_file_hash(full_target) if full_target.is_file() else None
 
-    # Generate unified diff
-    diff_content = await patcher.generate_patch(
-        project_id=project_id,
-        target_file_rel=target_file,
-        problem_summary=plan.problem_summary,
-        root_cause=plan.root_cause,
-        proposed_changes=proposed_changes,
-    )
+    # Generate unified diff (from explicit edit_blocks if provided, or generated via provider)
+    if req.edit_blocks:
+        try:
+            diffs = patcher.build_diffs_from_edit_blocks(workspace, req.edit_blocks)
+            diff_content = diffs.get(target_file) or next(iter(diffs.values()))
+        except PatchValidationError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+    else:
+        enforce_atomic_budget(owner_id=project.owner_id, estimated_tokens=1000)
+        diff_content = await patcher.generate_patch(
+            project_id=project_id,
+            target_file_rel=target_file,
+            problem_summary=plan.problem_summary,
+            root_cause=plan.root_cause,
+            proposed_changes=proposed_changes,
+        )
 
     # Validate against temporary snapshot
     is_valid, val_err, _ = patcher.parse_and_validate_diff(workspace, diff_content, target_file)
@@ -214,6 +234,16 @@ async def generate_patch(
 
     db.commit()
     db.refresh(patch_record)
+    record_provider_call(
+        owner_id=project.owner_id,
+        provider=get_settings().LLM_PROVIDER,
+        stage="patch",
+        model=get_settings().META_MODEL_ID,
+        prompt=plan.problem_summary,
+        response_text=diff_content,
+        patch_id=patch_record.id,
+        plan_id=plan.id,
+    )
 
     return patch_record
 
@@ -221,6 +251,8 @@ async def generate_patch(
 @router.get("/projects/{project_id}/patches")
 def list_project_patches(project_id: str, db: Session = Depends(get_db)):
     """List all generated patches for a project."""
+    if db.query(Project).filter(Project.id == project_id).first() is None:
+        raise HTTPException(status_code=404, detail="Project not found")
     return db.query(Patch).filter(Patch.project_id == project_id).order_by(Patch.created_at.desc()).all()
 
 
@@ -341,6 +373,7 @@ async def generate_regression_tests(patch_id: str, db: Session = Depends(get_db)
         _require_supported_demo_project(project)
     bug_desc = project.bug_description if project else "Bug fix"
 
+    enforce_atomic_budget(owner_id=project.owner_id if project else "anonymous", estimated_tokens=1000)
     test_code = await test_gen.generate_regression_test(
         bug_description=bug_desc,
         target_file=patch.target_file,
@@ -369,5 +402,15 @@ async def generate_regression_tests(patch_id: str, db: Session = Depends(get_db)
 
     db.commit()
     db.refresh(test_record)
+    record_provider_call(
+        owner_id=project.owner_id if project else "anonymous",
+        provider=get_settings().LLM_PROVIDER,
+        stage="test_gen",
+        model=get_settings().META_MODEL_ID,
+        prompt=patch.diff_content,
+        response_text=test_code,
+        patch_id=patch.id,
+        generated_test_id=test_record.id,
+    )
 
     return test_record

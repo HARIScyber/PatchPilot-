@@ -36,6 +36,7 @@ import {
   VerificationRun,
   AuditEvent,
   EvidenceReport,
+  EvaluationResults,
 } from './types';
 
 export default function App() {
@@ -53,7 +54,7 @@ export default function App() {
   const [serverReady, setServerReady] = useState(false);
   const [serverWaking, setServerWaking] = useState(true);
   const [wakeAttempt, setWakeAttempt] = useState(0);
-  const [evaluationResults, setEvaluationResults] = useState<any>(null);
+  const [evaluationResults, setEvaluationResults] = useState<EvaluationResults | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
 

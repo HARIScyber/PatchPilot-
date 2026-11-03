@@ -4,10 +4,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from sqlalchemy import Column, DateTime, ForeignKey, String, Text
 
-from ..database import Base
+from ..database import Base, OwnerScoped
 
 
-class AuditEvent(Base):
+class AuditEvent(OwnerScoped, Base):
     __tablename__ = "audit_events"
 
     id = Column(String, primary_key=True, index=True)

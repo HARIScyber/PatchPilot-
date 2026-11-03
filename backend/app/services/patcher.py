@@ -3,16 +3,30 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import json
 import logging
 import re
 import difflib
 from pathlib import Path
 from typing import Optional, Tuple
+from pydantic import BaseModel, Field
 
-from .meta_client import MetaClient
+from .context_budget import check_context_budget, extract_windowed_context
+from .json_parser import extract_json_candidate
+from .meta_client import MetaAPIError, MetaClient
 from .repo_manager import RepoManager
 
 logger = logging.getLogger("patchpilot.services.patcher")
+
+
+class EditBlock(BaseModel):
+    path: str = Field(description="Relative path of file to modify")
+    old_text: str = Field(description="Exact snippet to find and replace (must match once)")
+    new_text: str = Field(description="Replacement snippet")
+
+
+class EditBlockWrapper(BaseModel):
+    edits: list[EditBlock]
 
 
 class PatchValidationError(Exception):
@@ -160,8 +174,9 @@ class Patcher:
         problem_summary: str,
         root_cause: str,
         proposed_changes: list[str],
+        suspect_line: Optional[int] = None,
     ) -> str:
-        """Prompt the selected provider to generate a unified diff for the defect."""
+        """Prompt the selected provider to generate edit blocks and build a verified unified diff."""
         protected_reason = _protected_target_reason(target_file_rel)
         if protected_reason:
             raise PatchValidationError(protected_reason)
@@ -177,20 +192,38 @@ class Patcher:
         except UnicodeDecodeError as exc:
             raise PatchValidationError("Target file is not valid UTF-8; refusing lossy patching.") from exc
 
+        # Extract window around suspect lines to preserve context budget
+        windowed_code = extract_windowed_context(file_content, line_number=suspect_line, window_lines=60)
+
         system_prompt = (
-            "You are PatchPilot, an autonomous software repair engineer. Generate a clean, unified diff "
-            "that fixes the described defect without modifying unrelated code. "
-            "Format your output strictly as a unified diff starting with '--- a/...' and '+++ b/...'. "
-            "Do not output markdown code blocks unless necessary. Do not include extra conversational text."
+            "You are PatchPilot, an autonomous software repair engineer. Generate a clean, minimal fix "
+            "using exact-match edit blocks that fix the described defect without modifying unrelated code.\n"
+            "Output strictly a JSON array of edit blocks in this format:\n"
+            "[\n"
+            '  {\n'
+            f'    "path": "{target_file_rel}",\n'
+            '    "old_text": "exact snippet from current file to replace",\n'
+            '    "new_text": "replacement snippet"\n'
+            '  }\n'
+            "]\n"
+            "Rules:\n"
+            "- old_text must match exactly once in the file.\n"
+            "- Do not delete assertions or add process/network imports.\n"
+            "- Do not special-case literal inputs.\n"
+            "- Return ONLY the JSON array without commentary or markdown code fences."
         )
 
         user_content = (
             f"Problem Summary:\n{problem_summary}\n\n"
             f"Root Cause:\n{root_cause}\n\n"
             f"Proposed Changes:\n{chr(10).join(proposed_changes)}\n\n"
-            f"File: {target_file_rel}\n"
-            f"Current Content:\n```python\n{file_content}\n```"
+            f"Target File: {target_file_rel}\n"
+            f"Windowed Content around defect:\n```python\n{windowed_code}\n```"
         )
+
+        # Enforce context token budget
+        max_tokens = self.meta_client.settings.PUBLIC_MAX_TOKENS_PER_CALL if self.meta_client.settings.APP_MODE == "public_demo" else 4096
+        check_context_budget(user_content, system_prompt, hard_cap=max_tokens)
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -198,19 +231,57 @@ class Patcher:
         ]
 
         resp = await self.meta_client.chat_completion(messages, temperature=0.1)
-        raw_diff = resp["choices"][0]["message"]["content"]
+        raw_output = resp["choices"][0]["message"]["content"]
 
-        # Extract diff block if wrapped in markdown
-        diff_match = re.search(r"```(?:diff)?\s*([\s\S]*?)```", raw_diff)
-        if diff_match:
-            diff_content = diff_match.group(1)
-        else:
-            diff_content = raw_diff
+        # If model returned a raw unified diff directly (e.g. legacy/mock fallback)
+        if raw_output.strip().startswith("---") or ("@@" in raw_output and "+++" in raw_output):
+            diff_match = re.search(r"```(?:diff)?\s*([\s\S]*?)```", raw_output)
+            diff_content = diff_match.group(1) if diff_match else raw_output
+            if not diff_content.startswith("---"):
+                diff_content = f"--- a/{target_file_rel}\n+++ b/{target_file_rel}\n{diff_content}"
+            return diff_content
 
-        # Ensure minimal unified diff header if missing
-        if not diff_content.startswith("---"):
-            diff_content = f"--- a/{target_file_rel}\n+++ b/{target_file_rel}\n{diff_content}"
+        async def _bounded_repair_edits(err_msg: str, failed_text: str) -> str:
+            repair_messages = [
+                {"role": "system", "content": "You are a JSON repair tool. Output strictly a JSON array of edit blocks with path, old_text, new_text."},
+                {"role": "user", "content": f"The previous edit blocks failed validation: {err_msg}\n\nFailed output:\n{failed_text}\n\nReturn corrected JSON array:"},
+            ]
+            repair_resp = await self.meta_client.chat_completion(repair_messages, temperature=0.0)
+            return repair_resp["choices"][0]["message"]["content"]
 
+        # Parse edit blocks from JSON
+        candidate = extract_json_candidate(raw_output)
+        edit_blocks: list[dict] = []
+        try:
+            loaded = json.loads(candidate)
+            if isinstance(loaded, dict) and "edits" in loaded:
+                loaded = loaded["edits"]
+            if isinstance(loaded, list):
+                edit_blocks = loaded
+            else:
+                raise ValueError("Output must be a JSON array of edit blocks.")
+        except Exception:
+            # Try bounded repair
+            try:
+                repaired = await _bounded_repair_edits("Output must be a JSON array of edit blocks.", raw_output)
+                loaded = json.loads(extract_json_candidate(repaired))
+                if isinstance(loaded, dict) and "edits" in loaded:
+                    loaded = loaded["edits"]
+                if isinstance(loaded, list):
+                    edit_blocks = loaded
+                else:
+                    raise ValueError("Repaired output is not a JSON array.")
+            except Exception as exc:
+                raise MetaAPIError(
+                    f"Model response did not contain valid edit blocks: {exc}",
+                    status_code=502,
+                    provider_status="MALFORMED_RESPONSE",
+                )
+
+        # Build diffs using difflib via build_diffs_from_edit_blocks
+        diffs = self.build_diffs_from_edit_blocks(workspace, edit_blocks)
+        target_posix = Path(target_file_rel).as_posix()
+        diff_content = diffs.get(target_posix) or next(iter(diffs.values()))
         return diff_content
 
     def parse_and_validate_diff(

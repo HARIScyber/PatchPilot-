@@ -23,11 +23,11 @@ No dashboard setting has been changed or verified from this workspace. If the cu
 
 ## Render service settings to verify
 
-Inspect the existing service `srv-dbkd5icipgvc73c80080` (do not create a duplicate) and capture the build/start log. The repository Dockerfile starts Uvicorn on `0.0.0.0:${PORT:-8000}`; the configured Render health path is `/api/health`. Confirm the Docker image built, the service started with Render's assigned `PORT`, and required variable **names** are present. Never copy secret values into logs or this repository.
+Inspect the existing service `srv-dbkd5icipgvc73c80080` (do not create a duplicate) and capture the build/start log. The repository Dockerfile starts Uvicorn on `0.0.0.0:${PORT:-8000}`; the configured Render health path is `/api/health`. Production now requires PostgreSQL in `DATABASE_URL`, a 32-character-or-longer `SESSION_SIGNING_SECRET`, and the current Alembic schema. Run `alembic upgrade head` as a release pre-deploy command before startup. Confirm the Docker image built, the service started with Render's assigned `PORT`, and required variable **names** are present. Never copy secret values into logs or this repository.
 
 `/api/health` is constant-time and does not access the database, filesystem, or Meta. `/api/health/deep` separately checks database connectivity and cached provider configuration. A free instance may need time to wake, so the owner-run probe allows 120 seconds. The SQLite database directory is `/app/database` in the container and is writable by the non-root app user, but Render Free storage is ephemeral; no persistent disk or durable production database has been established. Sample data is loaded through the explicit sample-project action, not silently seeded at startup.
 
-The Docker build context is `./backend`. The sample source now lives under `backend/app/sample_data`, which is included by `COPY app ./app`; the CI smoke-test workflow builds this exact context and POSTs `/api/projects/load-sample`.
+The Docker build context is `./backend`. The sample source now lives under `backend/app/sample_data`, which is included by `COPY app ./app`. The SQLAlchemy database package also lives under `backend/app/database`; a broad ignore pattern previously omitted it from Git and has now been narrowed. The CI smoke-test workflow builds this exact context and POSTs `/api/projects/load-sample`.
 
 The frontend retries health requests with increasing delays and keeps start actions disabled until the backend responds. An external keep-warm monitor is optional; configure one only if you accept the plan's availability and usage implications. A keep-warm ping does not make ephemeral storage durable.
 

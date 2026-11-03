@@ -368,6 +368,14 @@ class MetaClient:
                 "    assert compute_cumulative_total([]) == 0.0\n"
                 "```"
             )
+        elif "edit block" in full_prompt or "exact-match" in full_prompt:
+            content = json.dumps([
+                {
+                    "path": "core/calculator.py",
+                    "old_text": "    for i in range(len(items) - 1):",
+                    "new_text": "    for i in range(len(items)):"
+                }
+            ], indent=2)
         elif "unified diff" in full_prompt or "generate a clean" in full_prompt:
             content = (
                 "```diff\n"

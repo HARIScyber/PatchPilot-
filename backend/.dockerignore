@@ -3,7 +3,7 @@
 **/*.py[cod]
 **/.pytest_cache/
 **/.ruff_cache/
-database/
+/database/
 **/workspaces/
 **/node_modules/
 **/.venv/

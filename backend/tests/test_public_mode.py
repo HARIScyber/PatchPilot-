@@ -22,8 +22,12 @@ def public_settings(monkeypatch):
 def test_public_demo_rejects_upload_before_processing_body(public_settings):
     with TestClient(app) as client:
         response = client.post("/api/projects/not-a-project/upload", files={"file": ("repo.zip", b"not-a-zip")})
+        # Test trailing slash normalization: /upload/ must behave identically to /upload
+        response_slash = client.post("/api/projects/not-a-project/upload/", files={"file": ("repo.zip", b"not-a-zip")})
     assert response.status_code == 403
     assert response.json()["error_code"] == "UPLOAD_DISABLED"
+    assert response_slash.status_code == 403
+    assert response_slash.json()["error_code"] == "UPLOAD_DISABLED"
 
 
 def test_public_demo_rejects_custom_project_creation(public_settings):
@@ -78,12 +82,43 @@ def test_launch_readiness_fails_closed_and_disables_public_ai(public_settings):
 
 
 def test_public_stats_returns_only_database_aggregate_counts(public_settings):
-    with TestClient(app) as client:
-        response = client.get("/api/public/stats")
-    assert response.status_code == 200
-    payload = response.json()
-    assert set(payload) == {"projects", "runs", "verified_runs"}
-    assert all(isinstance(value, int) and value >= 0 for value in payload.values())
+    import app.main as app_main
+    from app.database import SessionLocal
+    from app.models.project import Project
+    from app.models.verification_run import VerificationRun
+
+    # Clear cache for deterministic testing
+    app_main._public_stats_cache = {"expires": 0.0, "value": None}
+
+    # Seed data as owner A
+    with SessionLocal(info={"owner_id": "owner-seed-A"}) as db:
+        p = Project(id="proj-stats-test-1", name="Stats Sample", is_sample=True, owner_id="owner-seed-A")
+        vr = VerificationRun(id="run-stats-test-1", project_id=p.id, verification_status="VERIFIED_AGAINST_DEFINED_TESTS", owner_id="owner-seed-A")
+        db.add_all([p, vr])
+        db.commit()
+
+    try:
+        # Two distinct visitors see the exact same unscoped totals with zero owner data or IDs
+        with TestClient(app) as visitor_1:
+            res1 = visitor_1.get("/api/public/stats")
+        with TestClient(app) as visitor_2:
+            res2 = visitor_2.get("/api/public/stats")
+        assert res1.status_code == 200
+        assert res2.status_code == 200
+        assert res1.json() == res2.json()
+        payload = res1.json()
+        # Must return exact aggregate counts with zero per-owner data or IDs
+        assert set(payload) == {"projects", "runs", "verified_runs"}
+        assert payload["projects"] >= 1
+        assert payload["runs"] >= 1
+        assert payload["verified_runs"] >= 1
+        assert "owner_id" not in payload
+        assert "id" not in payload
+    finally:
+        with SessionLocal(info={"owner_id": "owner-seed-A"}) as db:
+            db.query(VerificationRun).filter(VerificationRun.id == "run-stats-test-1").delete()
+            db.query(Project).filter(Project.id == "proj-stats-test-1").delete()
+            db.commit()
 
 
 def test_public_daily_call_counter_enforces_cap(public_settings):

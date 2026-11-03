@@ -1,21 +1,27 @@
 """Project management and repository intake API endpoints."""
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
+import secrets
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from pydantic import BaseModel, Field
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from ..database import get_db
+from ..database import get_db, engine
 from ..core.config import get_settings
 from ..models.audit_event import AuditEvent
 from ..models.finding import Finding
 from ..models.project import Project
+from ..models.project_share import ProjectShare
 from ..schemas.project import ProjectCreate, ProjectResponse
 from ..security.zip_validator import ZipSecurityError
 from ..services.localization import BugLocalizer
@@ -356,3 +362,155 @@ def get_project_findings(project_id: str, db: Session = Depends(get_db)):
     _require_bundled_sample(project)
     findings = db.query(Finding).filter(Finding.project_id == project_id).all()
     return findings
+
+
+class ProjectShareCreate(BaseModel):
+    expires_in_hours: Optional[int] = Field(default=24, ge=1, le=720)
+
+
+@router.post("/{project_id}/share")
+def create_project_share(
+    project_id: str,
+    req: ProjectShareCreate = ProjectShareCreate(),
+    db: Session = Depends(get_db),
+):
+    """Generate an opt-in read-only share token for a project with expiration."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+    expires_at = (
+        datetime.now(timezone.utc) + timedelta(hours=req.expires_in_hours)
+        if req.expires_in_hours
+        else None
+    )
+
+    share = ProjectShare(
+        id=str(uuid4()),
+        project_id=project_id,
+        owner_id=project.owner_id,
+        token_hash=token_hash,
+        expires_at=expires_at,
+    )
+    db.add(share)
+    db.commit()
+    db.refresh(share)
+
+    return {
+        "share_id": share.id,
+        "share_token": raw_token,
+        "expires_at": share.expires_at,
+        "created_at": share.created_at,
+    }
+
+
+@router.get("/{project_id}/shares")
+def list_project_shares(project_id: str, db: Session = Depends(get_db)):
+    """List active share grants for this project."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    shares = (
+        db.query(ProjectShare)
+        .filter(ProjectShare.project_id == project_id, ProjectShare.revoked_at.is_(None))
+        .all()
+    )
+    return [
+        {
+            "id": s.id,
+            "project_id": s.project_id,
+            "expires_at": s.expires_at,
+            "created_at": s.created_at,
+            "is_expired": s.expires_at is not None and s.expires_at < datetime.now(timezone.utc),
+        }
+        for s in shares
+    ]
+
+
+@router.delete("/{project_id}/shares/{share_id}")
+def revoke_project_share(project_id: str, share_id: str, db: Session = Depends(get_db)):
+    """Revoke an active project share grant."""
+    share = (
+        db.query(ProjectShare)
+        .filter(
+            ProjectShare.id == share_id,
+            ProjectShare.project_id == project_id,
+        )
+        .first()
+    )
+    if not share:
+        raise HTTPException(status_code=404, detail="Share record not found")
+    share.revoked_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"status": "success", "message": "Share grant revoked"}
+
+
+@router.get("/shared/{share_token}")
+def get_shared_project(share_token: str):
+    """Public read-only view of a shared project via unguessable share token."""
+    token_hash = hashlib.sha256(share_token.encode("utf-8")).hexdigest()
+    now_utc = datetime.now(timezone.utc)
+
+    with engine.connect() as conn:
+        share_row = conn.execute(
+            text(
+                "SELECT id, project_id, expires_at, revoked_at FROM project_shares WHERE token_hash = :th"
+            ),
+            {"th": token_hash},
+        ).mappings().first()
+
+        if not share_row or share_row["revoked_at"] is not None:
+            raise HTTPException(status_code=404, detail="Shared project link is invalid or revoked")
+
+        if share_row["expires_at"] is not None:
+            exp = share_row["expires_at"]
+            if isinstance(exp, str):
+                exp = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=timezone.utc)
+            if exp < now_utc:
+                raise HTTPException(status_code=410, detail="Shared project link has expired")
+
+        proj_row = conn.execute(
+            text(
+                "SELECT id, name, bug_description, stack_trace, analysis_status, is_sample, created_at "
+                "FROM projects WHERE id = :pid"
+            ),
+            {"pid": share_row["project_id"]},
+        ).mappings().first()
+
+        if not proj_row:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        findings = conn.execute(
+            text(
+                "SELECT id, finding_type, severity, file_path, line_number, title, description, confidence "
+                "FROM findings WHERE project_id = :pid"
+            ),
+            {"pid": share_row["project_id"]},
+        ).mappings().all()
+
+        patches = conn.execute(
+            text(
+                "SELECT id, target_file, diff_content, validation_status, is_approved, is_applied, created_at "
+                "FROM patches WHERE project_id = :pid ORDER BY created_at DESC"
+            ),
+            {"pid": share_row["project_id"]},
+        ).mappings().all()
+
+        runs = conn.execute(
+            text(
+                "SELECT id, patch_id, status, verification_status, baseline_passed, patched_passed, duration_seconds, created_at "
+                "FROM verification_runs WHERE project_id = :pid ORDER BY created_at DESC"
+            ),
+            {"pid": share_row["project_id"]},
+        ).mappings().all()
+
+    return {
+        "project": dict(proj_row),
+        "findings": [dict(f) for f in findings],
+        "patches": [dict(p) for p in patches],
+        "verification_runs": [dict(r) for r in runs],
+    }

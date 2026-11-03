@@ -141,6 +141,8 @@ def get_verification_run(run_id: str, db: Session = Depends(get_db)):
 @router.get("/patches/{patch_id}/verification-history")
 def get_verification_history(patch_id: str, db: Session = Depends(get_db)):
     """List historical verification runs for a patch."""
+    if db.query(Patch).filter(Patch.id == patch_id).first() is None:
+        raise HTTPException(status_code=404, detail="Patch not found")
     return (
         db.query(VerificationRun)
         .filter(VerificationRun.patch_id == patch_id)
@@ -222,6 +224,8 @@ def get_project_report(
 @router.get("/projects/{project_id}/timeline")
 def get_project_timeline(project_id: str, db: Session = Depends(get_db)):
     """Retrieve chronologically ordered audit events for the project."""
+    if db.query(Project).filter(Project.id == project_id).first() is None:
+        raise HTTPException(status_code=404, detail="Project not found")
     events = (
         db.query(AuditEvent)
         .filter(AuditEvent.project_id == project_id)

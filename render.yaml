@@ -7,6 +7,14 @@ services:
     dockerfilePath: ./backend/Dockerfile
     healthCheckPath: /api/health
     envVars:
+      - key: APP_ENV
+        value: production
+      - key: SESSION_SIGNING_SECRET
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: LLM_PROVIDER
+        value: meta
       - key: MODEL_API_KEY
         sync: false
       - key: META_MODEL_ID

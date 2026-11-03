@@ -60,7 +60,7 @@ class RepoManager:
 
     def __init__(self):
         settings = get_settings()
-        self.workspaces_root = Path(settings.DATABASE_URL.replace("sqlite:///", "")).parent / "workspaces"
+        self.workspaces_root = Path(settings.WORKSPACES_DIR)
         self.workspaces_root.mkdir(parents=True, exist_ok=True)
 
     def get_workspace_dir(self, project_id: str) -> Path:

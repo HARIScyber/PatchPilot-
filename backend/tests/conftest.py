@@ -6,7 +6,8 @@ from pathlib import Path
 
 
 _old_environment = {key: os.environ.get(key) for key in (
-    "APP_MODE", "DEMO_MODE", "MODEL_API_KEY", "DATABASE_URL", "EXECUTION_BACKEND")}
+    "APP_MODE", "APP_ENV", "DEMO_MODE", "MODEL_API_KEY", "DATABASE_URL",
+    "EXECUTION_BACKEND", "SESSION_SIGNING_SECRET", "LLM_PROVIDER", "GEMINI_API_KEY")}
 _test_root = Path(tempfile.mkdtemp(prefix="patchpilot-tests-"))
 os.environ.update({
     "APP_MODE": "local",
@@ -14,6 +15,10 @@ os.environ.update({
     "MODEL_API_KEY": "",
     "DATABASE_URL": f"sqlite:///{_test_root / 'patchpilot-test.db'}",
     "EXECUTION_BACKEND": "none",
+    "APP_ENV": "test",
+    "SESSION_SIGNING_SECRET": "test-only-session-signing-secret-32-bytes-minimum",
+    "LLM_PROVIDER": "meta",
+    "GEMINI_API_KEY": "",
 })
 
 

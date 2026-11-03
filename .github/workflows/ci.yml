@@ -5,6 +5,54 @@ on:
   pull_request:
 
 jobs:
+  migrations-sqlite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r requirements.txt
+        working-directory: backend
+      - run: python -m alembic upgrade head
+        working-directory: backend
+        env:
+          DATABASE_URL: sqlite:////tmp/patchpilot-migrations.db
+      - run: python -c "from sqlalchemy import create_engine, inspect; i=inspect(create_engine('sqlite:////tmp/patchpilot-migrations.db')); assert 'owner_id' in {c['name'] for c in i.get_columns('projects')}; print('SQLite migration schema verified')"
+        working-directory: backend
+
+  migrations-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: patchpilot
+          POSTGRES_PASSWORD: patchpilot-ci-only
+          POSTGRES_DB: patchpilot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U patchpilot -d patchpilot"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r requirements.txt
+        working-directory: backend
+      - run: python -m alembic upgrade head
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql://patchpilot:patchpilot-ci-only@localhost:5432/patchpilot
+      - run: python -c "import os; from sqlalchemy import create_engine, inspect; i=inspect(create_engine(os.environ['DATABASE_URL'].replace('postgresql://','postgresql+psycopg://',1))); assert 'owner_id' in {c['name'] for c in i.get_columns('projects')}; print('PostgreSQL migration schema verified')"
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql://patchpilot:patchpilot-ci-only@localhost:5432/patchpilot
+
   backend:
     runs-on: ubuntu-latest
     steps:
@@ -32,30 +80,67 @@ jobs:
 
   backend-docker-smoke:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: patchpilot
+          POSTGRES_PASSWORD: patchpilot-ci-only
+          POSTGRES_DB: patchpilot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U patchpilot -d patchpilot"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - name: Build backend image
         run: docker build -t patchpilot-backend ./backend
-      - name: Start backend container
-        run: docker run -d --rm -p 8000:8000 -e PORT=8000 --name patchpilot-smoke patchpilot-backend
-      - name: Check health and packaged sample
+      - name: Test Docker container with SQLite
         shell: bash
         run: |
           set -euo pipefail
-          trap 'docker rm -f patchpilot-smoke >/dev/null 2>&1 || true' EXIT
+          docker run -d --rm -p 8000:8000 -e PORT=8000 -e APP_ENV=development --name patchpilot-smoke-sqlite patchpilot-backend
+          trap 'docker rm -f patchpilot-smoke-sqlite >/dev/null 2>&1 || true' EXIT
           ready=0
           for attempt in $(seq 1 40); do
-            if curl --fail --silent http://127.0.0.1:8000/api/health >/tmp/health.json; then
+            if curl --fail --silent http://127.0.0.1:8000/api/health >/tmp/health-sqlite.json; then
               ready=1
               break
             fi
             sleep 2
           done
           test "$ready" -eq 1
-          cat /tmp/health.json
-          curl --fail --silent --show-error -X POST http://127.0.0.1:8000/api/projects/load-sample >/tmp/sample.json
-          cat /tmp/sample.json
-          python -c "import json; p=json.load(open('/tmp/sample.json')); assert p['file_count'] >= 3; print('Bundled sample files:', p['file_count'])"
+          cat /tmp/health-sqlite.json
+          curl --fail --silent --show-error -X POST http://127.0.0.1:8000/api/projects/load-sample >/tmp/sample-sqlite.json
+          cat /tmp/sample-sqlite.json
+          python -c "import json; p=json.load(open('/tmp/sample-sqlite.json')); assert p['file_count'] >= 3; print('SQLite smoke sample files:', p['file_count'])"
+          docker rm -f patchpilot-smoke-sqlite >/dev/null 2>&1 || true
+      - name: Test Docker container with PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --rm -p 8001:8000 -e PORT=8000 -e APP_ENV=production \
+            -e SESSION_SIGNING_SECRET=test-production-secret-must-be-at-least-32-chars-long \
+            -e DATABASE_URL=postgres://patchpilot:patchpilot-ci-only@172.17.0.1:5432/patchpilot \
+            --name patchpilot-smoke-postgres patchpilot-backend
+          trap 'docker rm -f patchpilot-smoke-postgres >/dev/null 2>&1 || true' EXIT
+          ready=0
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:8001/api/health >/tmp/health-pg.json; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" -eq 1
+          cat /tmp/health-pg.json
+          curl --fail --silent --show-error -X POST http://127.0.0.1:8001/api/projects/load-sample >/tmp/sample-pg.json
+          cat /tmp/sample-pg.json
+          python -c "import json; p=json.load(open('/tmp/sample-pg.json')); assert p['file_count'] >= 3; print('Postgres smoke sample files:', p['file_count'])"
+          docker rm -f patchpilot-smoke-postgres >/dev/null 2>&1 || true
 
   frontend:
     runs-on: ubuntu-latest

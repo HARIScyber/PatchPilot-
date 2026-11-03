@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     GEMINI_MODEL_ID: str = Field(default="")
     GEMINI_API_BASE_URL: str = Field(default="https://generativelanguage.googleapis.com/v1beta")
     ALLOW_DEV_PROVIDER: bool = Field(default=False)
+    SESSION_SIGNING_SECRET: SecretStr = Field(default=SecretStr(""), repr=False)
 
     @field_validator("LLM_PROVIDER")
     @classmethod
@@ -61,6 +62,11 @@ class Settings(BaseSettings):
     @field_validator("GEMINI_API_KEY")
     @classmethod
     def _clean_gemini_key(cls, value: SecretStr) -> SecretStr:
+        return SecretStr(value.get_secret_value().strip())
+
+    @field_validator("SESSION_SIGNING_SECRET")
+    @classmethod
+    def _clean_session_secret(cls, value: SecretStr) -> SecretStr:
         return SecretStr(value.get_secret_value().strip())
 
     # ── Application Modes ───────────────────────────────────────────
@@ -85,6 +91,7 @@ class Settings(BaseSettings):
         default=f"sqlite:///{_BACKEND_DIR / 'database' / 'patchpilot.db'}",
         description="SQLAlchemy database URL",
     )
+    WORKSPACES_DIR: str = Field(default=str(_BACKEND_DIR / "database" / "workspaces"))
 
     # ── Execution limits ────────────────────────────────────────────
     MAX_REPAIR_ATTEMPTS: int = Field(default=3, ge=1, le=10)

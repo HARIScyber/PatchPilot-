@@ -1,5 +1,4 @@
 """Automated test suite for Phase 5: Sandbox execution, verification engine, and bounded self-repair loop."""
-import os
 import pytest
 from fastapi.testclient import TestClient
 
@@ -20,11 +19,11 @@ def client():
     return TestClient(app)
 
 
-def test_environment_sanitization():
+def test_environment_sanitization(monkeypatch):
     """Verify that sensitive tokens and API keys are stripped from the sandbox environment."""
-    os.environ["META_API_KEY"] = "secret_key_123"
-    os.environ["DATABASE_URL"] = "postgresql://user:pass@host/db"
-    os.environ["SAFE_VARIABLE"] = "safe_value"
+    monkeypatch.setenv("META_API_KEY", "secret_key_123")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@host/db")
+    monkeypatch.setenv("SAFE_VARIABLE", "safe_value")
 
     clean_env = get_sanitized_env()
     assert "META_API_KEY" not in clean_env

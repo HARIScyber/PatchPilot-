@@ -172,33 +172,17 @@ export interface EvidenceReport {
 }
 
 export interface EvaluationResults {
-  metadata: {
-    timestamp: string;
-    benchmark_dataset: string;
-    total_evaluated_cases: number;
-  };
-  metrics_comparison: {
-    static_analysis_baseline: {
-      localization_recall_at_1: number;
-      patch_application_rate: number;
-      test_pass_rate: number;
-      avg_attempts: number;
-      mean_execution_time_seconds: number;
-    };
-    single_pass_ai_repair: {
-      localization_recall_at_1: number;
-      patch_application_rate: number;
-      test_pass_rate: number;
-      avg_attempts: number;
-      mean_execution_time_seconds: number;
-    };
-    patchpilot_closed_loop: {
-      localization_recall_at_1: number;
-      patch_application_rate: number;
-      test_pass_rate: number;
-      avg_attempts: number;
-      mean_execution_time_seconds: number;
-    };
-  };
-  conclusion: string;
+  evaluation_status: 'NOT_MEASURED' | 'MEASURED' | string;
+  dataset: string;
+  case_count: number;
+  dataset_type?: string;
+  mode?: string;
+  N?: number;
+  denominators?: Record<string, number>;
+  metrics?: Record<string, number> | null;
+  reason?: string;
+  failed_cases?: number | null;
+  skipped_cases?: number | null;
+  reproducibility?: string;
+  error?: string;
 }
