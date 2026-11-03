@@ -1,4 +1,4 @@
-# PatchPilot
+# PatchPilot (deployed)
 
 **Patches that carry their own proof (in development).**
 
@@ -123,3 +123,5 @@ See [DEPLOYMENT.md](DEPLOYMENT.md), [docs/PRODUCTION_DEPLOYMENT.md](docs/PRODUCT
 This is a prototype without authentication. Do not submit secrets or proprietary code. There is no server/browser sandbox for running uploaded code; test execution remains unavailable. Render Free uses ephemeral local storage, so SQLite/workspaces can be lost. CORS credentials are disabled and origins are explicit. Review [SECURITY.md](SECURITY.md) and [docs/SECURITY.md](docs/SECURITY.md).
 
 Current public-check results and exact blockers are in [docs/END_TO_END_TEST_REPORT.md](docs/END_TO_END_TEST_REPORT.md).
+
+Deployed at 2026-11-04T00:11:11+05:30
