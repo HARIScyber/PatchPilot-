@@ -25,6 +25,10 @@ def set_shared_http_client(client) -> None:
     _shared_http_client = client
 
 
+def get_shared_http_client():
+    return _shared_http_client
+
+
 class MetaAPIError(Exception):
     """Base exception for Meta API failures."""
 
@@ -36,8 +40,12 @@ class MetaAPIError(Exception):
         provider_status: str = "PROVIDER_UNAVAILABLE",
     ):
         # Ensure credentials never leak into exception messages
-        key = get_settings().effective_api_key
-        super().__init__(message.replace(key, "***redacted***") if key else message)
+        settings = get_settings()
+        keys = [settings.effective_api_key, settings.GEMINI_API_KEY.get_secret_value()]
+        for key in keys:
+            if key:
+                message = message.replace(key, "***redacted***")
+        super().__init__(message)
         self.status_code = status_code
         # Provider bodies can echo request data; never persist/return them.
         self.response_body = None
@@ -93,7 +101,13 @@ class MetaClient:
         - PROVIDER_UNAVAILABLE: Connection failure, DNS error, or 5xx from Meta
         - DEMO_MODE: Explicitly running in simulated demo mode
         """
-        if self.settings.DEMO_MODE:
+        if self.settings.LLM_PROVIDER == "gemini":
+            from .gemini_client import GeminiClient
+            return await GeminiClient(self.settings, self.http_client).check_provider_health()
+        if self.settings.LLM_PROVIDER == "replay":
+            return {"status": "NOT_CONFIGURED", "connected": False, "provider": "replay",
+                    "model_id": None, "message": "No replay cassette is configured."}
+        if self.settings.LLM_PROVIDER == "demo" or self.settings.DEMO_MODE:
             return {
                 "status": "DEMO_MODE",
                 "connected": False,
@@ -197,12 +211,20 @@ class MetaClient:
         max_tokens: int = 4096,
     ) -> Dict[str, Any]:
         """Send chat completion request to Meta API or return mock if explicitly in DEMO_MODE."""
+        if self.settings.APP_MODE == "public_demo" and self.settings.LLM_PROVIDER != "meta" and not self.settings.ALLOW_DEV_PROVIDER:
+            raise MetaAPIError("Development providers are disabled in public mode.", provider_status="PUBLIC_DEMO_DISABLED")
         if self.settings.APP_MODE == "public_demo" and not public_ai_is_ready(self.settings):
             raise MetaAPIError("Public demo is temporarily disabled.", provider_status="PUBLIC_DEMO_DISABLED")
         if self.settings.APP_MODE == "public_demo":
             max_tokens = min(max_tokens, self.settings.PUBLIC_MAX_TOKENS_PER_CALL)
         # 1. DEMO MODE — Explicitly allowed
-        if self.settings.DEMO_MODE:
+        if self.settings.LLM_PROVIDER == "gemini":
+            from .gemini_client import GeminiClient
+            return await GeminiClient(self.settings, self.http_client).chat_completion(
+                messages, temperature=temperature, max_tokens=max_tokens)
+        if self.settings.LLM_PROVIDER == "replay":
+            raise MetaAPIError("No replay cassette matches the selected provider and prompt.", provider_status="NOT_CONFIGURED")
+        if self.settings.LLM_PROVIDER == "demo" or self.settings.DEMO_MODE:
             logger.info("Executing in DEMO_MODE: Returning explicitly labeled simulated output.")
             mock_data = await self._mock_completion(messages)
             mock_data["meta_integration"] = {
@@ -266,6 +288,8 @@ class MetaClient:
                         "is_mock": False,
                         "demo_mode": False,
                         "model": data.get("model"),
+                        "request_id": data.get("id"),
+                        "finish_reason": (data.get("choices") or [{}])[0].get("finish_reason"),
                         "base_url": self.settings.META_API_BASE_URL,
                         "latency_seconds": latency,
                         "request_status": resp.status_code,

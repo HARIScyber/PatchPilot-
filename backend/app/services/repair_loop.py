@@ -1,4 +1,4 @@
-"""Bounded self-repair loop feeding test execution failures back into Meta AI for iterative refinement."""
+"""Bounded self-repair loop feeding test execution failures back to the configured provider."""
 from __future__ import annotations
 
 import hashlib
@@ -87,7 +87,7 @@ class RepairLoopOrchestrator:
 
             # If failed and attempts remain, request revised patch from Meta AI
             if attempt < max_attempts:
-                logger.info("Attempt %d failed. Requesting refined patch from Meta AI...", attempt)
+                logger.info("Attempt %d failed. Requesting a refined patch from the selected provider.", attempt)
                 patched_info = verif_result.get("patched") or {}
                 stderr = patched_info.get("stderr", "")
                 stdout = patched_info.get("stdout", "")
@@ -120,7 +120,7 @@ class RepairLoopOrchestrator:
         failure_evidence: str,
         attempt: int,
     ) -> str:
-        """Prompt Meta AI to revise patch using captured test failures."""
+        """Prompt the selected provider to revise a patch using captured test failures."""
         workspace = self.repo_manager.get_workspace_dir(project_id)
         try:
             source_path = self.patcher.resolve_target_file(workspace, target_file)

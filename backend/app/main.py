@@ -5,7 +5,7 @@ import json
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 import httpx
 import hashlib
@@ -60,6 +60,8 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing PatchPilot database...")
     init_db()
     settings = get_settings()
+    if settings.APP_MODE == "public_demo" and settings.LLM_PROVIDER != "meta" and not settings.ALLOW_DEV_PROVIDER:
+        raise RuntimeError("Public LIVE mode requires LLM_PROVIDER=meta unless ALLOW_DEV_PROVIDER=true.")
     shared_client = httpx.AsyncClient(timeout=httpx.Timeout(
         settings.META_API_TIMEOUT, connect=min(10.0, settings.META_API_TIMEOUT)))
     set_shared_http_client(shared_client)
@@ -77,7 +79,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="PatchPilot API",
-    description="Self-Verifying AI Software Engineering Agent API powered by Meta AI (dev.meta.ai Muse Spark)",
+    description="Self-Verifying AI Software Engineering Agent API with an explicitly selected LLM provider.",
     version="0.1.0",
     lifespan=lifespan,
     docs_url=None if get_settings().APP_MODE == "public_demo" else "/docs",
@@ -110,7 +112,7 @@ async def add_security_headers(request: Request, call_next):
             return JSONResponse(status_code=400, content={"error_code": "INVALID_CONTENT_LENGTH",
                 "message": "Invalid request size."})
         protected = (request.url.path.endswith(("/repair-plan", "/patches/generate",
-            "/generate-tests", "/repair-loop", "/providers/meta/test")) and request.method == "POST")
+            "/generate-tests", "/repair-loop", "/providers/meta/test", "/providers/test")) and request.method == "POST")
         if protected:
             if not public_ai_is_ready(settings):
                 return JSONResponse(status_code=503, content={"error_code": "PUBLIC_DEMO_DISABLED",
@@ -151,11 +153,12 @@ async def add_request_correlation_id(request: Request, call_next):
 @app.exception_handler(MetaAPIError)
 async def meta_error_handler(_request: Request, exc: MetaAPIError):
     status = {"NOT_CONFIGURED": 503, "AUTHENTICATION_FAILED": 401, "RATE_LIMITED": 429,
+              "QUOTA_EXHAUSTED": 429, "RESPONSE_BLOCKED": 422, "OUTPUT_TRUNCATED": 502,
               "MODEL_NOT_FOUND": 400, "PROVIDER_UNAVAILABLE": 502, "MALFORMED_RESPONSE": 502,
               "DEMO_MODE": 503, "PUBLIC_DEMO_DISABLED": 503,
               "PUBLIC_DAILY_CAP_EXHAUSTED": 429}.get(exc.provider_status, 502)
     return JSONResponse(status_code=status, content={"error_code": exc.provider_status,
-        "message": "Meta provider request failed.", "provider_status": exc.provider_status})
+        "message": f"{get_settings().LLM_PROVIDER.capitalize()} provider request failed.", "provider_status": exc.provider_status})
 
 # Include API routers
 app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
@@ -239,7 +242,42 @@ async def get_cached_meta_status():
 @app.post("/api/providers/meta/test", tags=["providers"])
 async def test_meta_provider():
     """Make one explicit minimal provider request."""
+    from .core.config import get_settings
+    meta_settings = get_settings().model_copy(update={"LLM_PROVIDER": "meta"})
+    return await MetaClient(settings=meta_settings).check_provider_health()
+
+
+@app.get("/api/providers/status", tags=["providers"])
+async def active_provider_status():
+    """Return cached configuration readiness for each provider; never makes provider calls."""
+    settings = get_settings()
+    meta_ready = "CONFIGURED" if settings.meta_configured else "NOT_CONFIGURED"
+    gemini_ready = ("CONFIGURED" if settings.GEMINI_API_KEY.get_secret_value() and settings.GEMINI_MODEL_ID.strip()
+                    else "NOT_CONFIGURED")
+    return {"active_provider": settings.LLM_PROVIDER,
+            "configured_model_id": settings.GEMINI_MODEL_ID if settings.LLM_PROVIDER == "gemini" else
+                                   settings.META_MODEL_ID if settings.LLM_PROVIDER == "meta" else None,
+            "state": "DEMO_MODE" if settings.LLM_PROVIDER == "demo" or settings.DEMO_MODE else
+                     "CONFIGURED_UNVERIFIED" if (gemini_ready if settings.LLM_PROVIDER == "gemini" else meta_ready) == "CONFIGURED"
+                     else "NOT_CONFIGURED",
+            "providers": {"meta": {"state": meta_ready, "model_id": settings.META_MODEL_ID},
+                          "gemini": {"state": gemini_ready, "model_id": settings.GEMINI_MODEL_ID or None}}}
+
+
+@app.post("/api/providers/test", tags=["providers"])
+async def test_active_provider():
+    """Make one explicit minimal request against the selected provider."""
     return await meta_client.check_provider_health()
+
+
+@app.get("/api/providers/gemini/models", tags=["providers"])
+async def list_gemini_models():
+    """Explicitly list models available to the configured Gemini credential (no generation tokens)."""
+    settings = get_settings()
+    if settings.APP_MODE != "local" or settings.APP_ENV.lower() == "production":
+        raise HTTPException(status_code=403, detail="Gemini model listing is disabled in public mode.")
+    from .services.gemini_client import GeminiClient
+    return {"models": await GeminiClient(settings, meta_client.http_client).list_models()}
 
 
 @app.get("/api/providers/meta/status", tags=["providers"])
@@ -259,8 +297,13 @@ async def public_config():
                     {"day": datetime.now(timezone.utc).date().isoformat()}).scalar() or 0
         except Exception:
             calls_today = 0
+    active_provider_state = (await get_cached_meta_status()).get("status") if settings.LLM_PROVIDER == "meta" else (
+        "DEMO_MODE" if settings.LLM_PROVIDER == "demo" else
+        "CONFIGURED_UNVERIFIED" if settings.LLM_PROVIDER == "gemini" and
+        settings.GEMINI_API_KEY.get_secret_value() and settings.GEMINI_MODEL_ID.strip() else
+        "NOT_CONFIGURED")
     return {"mode": settings.APP_MODE,
-        "provider_status": (await get_cached_meta_status()).get("status"),
+        "provider_status": active_provider_state,
         "execution_backend": settings.EXECUTION_BACKEND,
         "upload_enabled": settings.ENABLE_UPLOAD and settings.APP_MODE != "public_demo",
         "daily_meta_call_cap": settings.PUBLIC_DAILY_META_CALL_CAP,

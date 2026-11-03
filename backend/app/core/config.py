@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger("patchpilot.config")
@@ -23,8 +23,9 @@ class Settings(BaseSettings):
 
     # ── Meta Model API ──────────────────────────────────────────────
     # Official env var per documentation: MODEL_API_KEY
-    MODEL_API_KEY: str = Field(
-        default="",
+    MODEL_API_KEY: SecretStr = Field(
+        default=SecretStr(""),
+        repr=False,
         description="Official Bearer token for Meta Model API (starts with LLM_)",
     )
     META_MODEL_ID: str = Field(
@@ -43,6 +44,24 @@ class Settings(BaseSettings):
         default=3,
         description="Maximum retries for retryable Meta API failures",
     )
+    LLM_PROVIDER: str = Field(default="meta")
+    GEMINI_API_KEY: SecretStr = Field(default=SecretStr(""), repr=False)
+    GEMINI_MODEL_ID: str = Field(default="")
+    GEMINI_API_BASE_URL: str = Field(default="https://generativelanguage.googleapis.com/v1beta")
+    ALLOW_DEV_PROVIDER: bool = Field(default=False)
+
+    @field_validator("LLM_PROVIDER")
+    @classmethod
+    def _validate_llm_provider(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"meta", "gemini", "demo", "replay"}:
+            raise ValueError("LLM_PROVIDER must be one of: meta, gemini, demo, replay")
+        return normalized
+
+    @field_validator("GEMINI_API_KEY")
+    @classmethod
+    def _clean_gemini_key(cls, value: SecretStr) -> SecretStr:
+        return SecretStr(value.get_secret_value().strip())
 
     # ── Application Modes ───────────────────────────────────────────
     APP_ENV: str = Field(default="development")
@@ -82,8 +101,8 @@ class Settings(BaseSettings):
     # ── Validators ──────────────────────────────────────────────────
     @field_validator("MODEL_API_KEY")
     @classmethod
-    def _clean_key(cls, v: str) -> str:
-        return v.strip() if v else ""
+    def _clean_key(cls, v: SecretStr) -> SecretStr:
+        return SecretStr(v.get_secret_value().strip())
 
     @field_validator("DATABASE_URL")
     @classmethod
@@ -103,7 +122,7 @@ class Settings(BaseSettings):
     @property
     def effective_api_key(self) -> str:
         """Return the single supported Meta credential setting."""
-        return self.MODEL_API_KEY
+        return self.MODEL_API_KEY.get_secret_value()
 
     @property
     def meta_configured(self) -> bool:
@@ -126,6 +145,8 @@ class Settings(BaseSettings):
         d = self.model_dump()
         if d.get("MODEL_API_KEY"):
             d["MODEL_API_KEY"] = "***redacted***"
+        if d.get("GEMINI_API_KEY"):
+            d["GEMINI_API_KEY"] = "***redacted***"
         if "DATABASE_URL" in d and "://" in d["DATABASE_URL"]:
             parts = d["DATABASE_URL"].split("@")
             if len(parts) > 1:

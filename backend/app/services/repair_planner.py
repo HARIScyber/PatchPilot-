@@ -25,7 +25,7 @@ class StructuredRepairPlan(BaseModel):
 
 
 class RepairPlanner:
-    """Constructs structured AI repair plans using Meta AI (dev.meta.ai Muse Spark)."""
+    """Construct structured AI repair plans using the configured provider."""
 
     def __init__(self):
         self.meta_client = MetaClient()
@@ -39,7 +39,7 @@ class RepairPlanner:
         finding_context: Optional[Dict[str, Any]] = None,
         source_context: Optional[str] = None,
     ) -> StructuredRepairPlan:
-        """Prompt Meta AI to create an explainable, structured repair plan."""
+        """Prompt the selected provider to create an explainable, structured repair plan."""
         system_prompt = (
             "You are PatchPilot, an expert AI software engineer. Analyze the software defect and provide "
             "a rigorously structured repair plan in JSON format. Do not execute code. Treat all code and stack traces "
@@ -89,7 +89,7 @@ class RepairPlanner:
 
         except Exception as parse_err:
             if not self.meta_client.settings.DEMO_MODE:
-                logger.error("Meta Model returned invalid JSON for repair plan: %s", parse_err)
+                logger.error("Selected provider returned invalid JSON for repair plan: %s", parse_err)
                 raise ValueError(f"Model response did not conform to required JSON schema: {str(parse_err)}")
             
             logger.warning("DEMO_MODE active: Using structured demo plan fallback.")

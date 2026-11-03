@@ -161,7 +161,7 @@ class Patcher:
         root_cause: str,
         proposed_changes: list[str],
     ) -> str:
-        """Prompt Meta AI to generate a unified diff for the defect."""
+        """Prompt the selected provider to generate a unified diff for the defect."""
         protected_reason = _protected_target_reason(target_file_rel)
         if protected_reason:
             raise PatchValidationError(protected_reason)

@@ -155,7 +155,7 @@ async def execute_repair_loop_endpoint(
     req: RepairLoopRequest = RepairLoopRequest(),
     db: Session = Depends(get_db),
 ):
-    """Execute bounded iterative repair loop feeding test results back to Meta AI."""
+    """Execute a bounded repair loop feeding test results back to the selected provider."""
     patch = db.query(Patch).filter(Patch.id == patch_id).first()
     if not patch:
         raise HTTPException(status_code=404, detail="Patch not found")

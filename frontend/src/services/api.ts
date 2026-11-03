@@ -59,6 +59,16 @@ export async function fetchPublicConfig(): Promise<any> {
   return res.json();
 }
 
+export async function fetchProviderStatus(): Promise<any> {
+  const res = await request(`${BASE_URL}/providers/status`);
+  return res.json();
+}
+
+export async function testActiveProvider(): Promise<any> {
+  const res = await request(`${BASE_URL}/providers/test`, { method: 'POST' }, 90_000);
+  return res.json();
+}
+
 export async function fetchPublicStats(): Promise<{ projects: number; runs: number; verified_runs: number }> {
   const res = await request(`${BASE_URL}/public/stats`, undefined, 90_000);
   return res.json();

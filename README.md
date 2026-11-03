@@ -18,7 +18,7 @@ These are the owner-provided production URLs. As of 3 November 2026, the fronten
 
 - React workspace for repository intake, static analysis, repair plans, candidate patches, generated tests, evidence reports, and evaluation status.
 - FastAPI project, patch, repair, health, provider, and report APIs.
-- Meta Model API adapter using the server-side `MODEL_API_KEY`, `muse-spark-1.3`, and `https://api.meta.ai/v1`. Demo mode is labeled and never silently substitutes for a live call.
+- Meta remains the default and hackathon submission provider. An explicitly selected Gemini development adapter is available through `LLM_PROVIDER=gemini`; provider failures never switch providers automatically. Demo is explicit, and replay is unavailable until cassettes are implemented.
 - ZIP path/size checks and patch validation; human approval is required before applying a patch.
 - Evidence/report records distinguish model proposals from actual test results.
 
@@ -70,6 +70,9 @@ Open the Vite URL (normally `http://localhost:3000`). The development Vite serve
 The root [`.env.example`](.env.example) lists supported backend values. Important settings:
 
 - `MODEL_API_KEY`: secret bearer key; server-side only.
+- `LLM_PROVIDER`: `meta` by default, or explicitly `gemini`, `demo`, or `replay`.
+- `GEMINI_API_KEY`, `GEMINI_MODEL_ID`, `GEMINI_API_BASE_URL`: optional server-side Gemini development settings. Set the model ID only after checking the credential's available models.
+- `ALLOW_DEV_PROVIDER`: permits selecting a non-Meta provider in public-mode configuration; public AI still remains blocked by the launch gates.
 - `META_MODEL_ID`, `META_API_BASE_URL`, `META_API_TIMEOUT`, `META_MAX_RETRIES`: provider model and request behavior.
 - `APP_MODE`, `DEMO_MODE`, `PUBLIC_DEMO_ENABLED`: runtime mode and public action kill switch.
 - `EXECUTION_BACKEND`, `ENABLE_UPLOAD`, `ALLOWED_ORIGINS`: execution, uploads, and explicit CORS origins.
@@ -78,9 +81,11 @@ The root [`.env.example`](.env.example) lists supported backend values. Importan
 
 Frontend calls use `/api`; no production `VITE_API_BASE_URL` is needed. Production API routing is in [`frontend/vercel.json`](frontend/vercel.json).
 
-## Meta Model API setup
+## Provider setup
 
 Set `MODEL_API_KEY` in `backend/.env` for local use or in Render's secret environment for production. The official endpoint/model are `https://api.meta.ai/v1` and `muse-spark-1.3`. A missing/rejected key produces a clear provider error; it does not become simulated output unless `DEMO_MODE=true`. A provider test is a real API request and may be billable. Live status and account billing were not verified in this audit.
+
+Meta is the required demo and submission provider (`LLM_PROVIDER=meta`). For optional local Gemini work, create a fresh Gemini API key, store it only in the backend environment, select `LLM_PROVIDER=gemini`, and set `GEMINI_MODEL_ID` to an ID returned by `GET /api/providers/gemini/models`. `POST /api/providers/test` makes one real minimal request and can consume quota. The `GEMINI_API_KEY` pasted into a prior chat was exposed; revoke it and use a newly generated key. This repository does not contain that pasted value. Do not set Gemini as the public submission provider.
 
 ## Testing
 

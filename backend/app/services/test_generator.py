@@ -1,4 +1,4 @@
-"""Regression test generator using Meta AI to produce verifiable pytest test cases."""
+"""Regression test generator using the configured provider to produce pytest test cases."""
 from __future__ import annotations
 
 import ast
@@ -24,7 +24,7 @@ class RegressionTestGenerator:
         patch_diff: str,
         existing_test_context: Optional[str] = None,
     ) -> str:
-        """Prompt Meta AI to write high-signal regression tests."""
+        """Prompt the selected provider to write high-signal regression tests."""
         system_prompt = (
             "You are PatchPilot, an expert AI test engineer. Write targeted pytest test cases that verify "
             "the bug is resolved and prevent regressions. "
@@ -57,7 +57,7 @@ class RegressionTestGenerator:
             ast.parse(test_code)
         except SyntaxError as syn_err:
             if not self.meta_client.settings.DEMO_MODE:
-                logger.error("Meta Model generated invalid Python syntax for regression test: %s", syn_err)
+                logger.error("Selected provider generated invalid Python syntax for regression test: %s", syn_err)
                 raise ValueError(f"Model generated invalid Python code: {syn_err.msg} (line {syn_err.lineno})")
 
             logger.warning("DEMO_MODE active: Using verified demo regression test.")

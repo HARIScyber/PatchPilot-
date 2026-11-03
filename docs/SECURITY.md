@@ -4,7 +4,7 @@ This is a prototype, not a multi-user production repair service. It has no authe
 
 ## Safe behavior
 
-- `MODEL_API_KEY` is server-side only. Browser code uses same-origin `/api`; no frontend API credential is configured.
+- `MODEL_API_KEY` and `GEMINI_API_KEY` are server-side only. Browser code uses same-origin `/api`; no frontend API credential is configured. The Gemini key pasted in chat must be revoked and replaced before use.
 - CORS uses explicit origins and methods; credentialed CORS is disabled.
 - Production defaults disable repository uploads and public Meta actions. `APP_MODE=public_demo`, `PUBLIC_AI_ENABLED=false`, `PUBLIC_DEMO_ENABLED=false`, and `EXECUTION_BACKEND=none` are the intended safe values. Public AI also stays blocked unless all eight launch gates pass.
 - Public-mode API documentation/OpenAPI are disabled. Health routes return status only and do not expose database URLs, file paths, or exception details.
@@ -26,4 +26,4 @@ This is a prototype, not a multi-user production repair service. It has no authe
 
 The previously committed initial tree excludes local `.env`, SQLite databases, logs, and generated workspaces. A local high-confidence scan found no Meta API key, GitHub token, common cloud token, or PEM private-key marker in the text files scanned. This is not a scan of every historical Git object, a provider's secret scanner, or a substitute for rotating any credential that may have been exposed elsewhere.
 
-Never place secrets in Vercel `VITE_*` variables, source code, reports, browser logs, or GitHub commits. Store Meta keys in Render's secret settings. Follow the project's private vulnerability-reporting route before publishing sensitive reports.
+Never place secrets in Vercel `VITE_*` variables, source code, reports, browser logs, or GitHub commits. Store provider keys in host secret settings. Follow the project's private vulnerability-reporting route before publishing sensitive reports.

@@ -16,6 +16,7 @@ __pycache__/
 *.db-*
 deploy-proof.json
 launch-proof.json
+submission-proof.json
 /frontend/public/version.json
 *.pem
 *.key
