@@ -11,9 +11,9 @@ import {
   EvaluationResults,
 } from '../types';
 
-// Browser requests stay same-origin: Vite proxies in development and Vercel
-// rewrites /api/* to the Render service in production.
-const BASE_URL = '/api';
+// Browser requests stay same-origin by default: Vite proxies in development and Vercel
+// rewrites /api/* to the Render service in production. Optionally supports VITE_API_BASE_URL.
+const BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/+$/, '');
 
 export class ApiError extends Error {
   constructor(message: string, public readonly errorCode?: string, public readonly status?: number, public readonly requestId?: string) {

@@ -1,21 +1,29 @@
 import react from '@vitejs/plugin-react';
 import { build } from 'vite';
-import { writeFile } from 'node:fs/promises';
+import { writeFile, mkdir } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const frontendDir = resolve(__dirname, '..');
 
 let commit = process.env.VERCEL_GIT_COMMIT_SHA || 'unknown';
 if (commit === 'unknown') {
   try { commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(); }
   catch { /* builds from source archives may not have .git metadata */ }
 }
-await writeFile(resolve('public/version.json'), JSON.stringify({
+const publicDir = resolve(frontendDir, 'public');
+await mkdir(publicDir, { recursive: true });
+await writeFile(resolve(publicDir, 'version.json'), JSON.stringify({
   commit: commit.slice(0, 40),
   build_date: new Date().toISOString(),
 }, null, 2));
 
 await build({
+  root: frontendDir,
   configFile: false,
   plugins: [react()],
-  build: { outDir: 'dist' },
+  build: { outDir: resolve(frontendDir, 'dist') },
 });
+

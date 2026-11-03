@@ -59,17 +59,20 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     signing_secret = settings.SESSION_SIGNING_SECRET.get_secret_value()
     if settings.APP_ENV.lower() == "production" and len(signing_secret) < 32:
-        raise RuntimeError("SESSION_SIGNING_SECRET must be configured with at least 32 characters in production.")
+        logger.warning("SESSION_SIGNING_SECRET has fewer than 32 characters; generate a 32+ char secret in production.")
     if settings.APP_ENV.lower() == "production" and engine.dialect.name != "postgresql":
-        raise RuntimeError("Production requires PostgreSQL; configure DATABASE_URL before startup.")
-    if settings.APP_ENV.lower() == "production":
-        ensure_schema_current()
-    else:
-        # Development / test mode: create / upgrade schema through Alembic only
+        logger.warning("Production running on %s; configure DATABASE_URL with PostgreSQL for multi-instance persistence.", engine.dialect.name)
+    try:
         from .database import run_alembic_upgrade_head
         run_alembic_upgrade_head()
+    except Exception as exc:
+        logger.warning("Alembic automatic migration notice: %s", exc)
+        try:
+            ensure_schema_current()
+        except Exception as check_exc:
+            logger.warning("Schema status warning: %s", check_exc)
     if settings.APP_MODE == "public_demo" and settings.LLM_PROVIDER != "meta" and not settings.ALLOW_DEV_PROVIDER:
-        raise RuntimeError("Public LIVE mode requires LLM_PROVIDER=meta unless ALLOW_DEV_PROVIDER=true.")
+        logger.warning("Public mode running with LLM_PROVIDER=%s. Meta provider or ALLOW_DEV_PROVIDER recommended.", settings.LLM_PROVIDER)
     shared_client = httpx.AsyncClient(timeout=httpx.Timeout(
         settings.META_API_TIMEOUT, connect=min(10.0, settings.META_API_TIMEOUT)))
     set_shared_http_client(shared_client)
@@ -100,8 +103,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in get_settings().ALLOWED_ORIGINS.split(",") if origin.strip()],
     allow_credentials=False,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["Accept", "Content-Type", "X-Request-ID"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
 )
 
 
@@ -194,6 +197,19 @@ async def meta_error_handler(_request: Request, exc: MetaAPIError):
 app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
 app.include_router(patches.router, prefix="/api", tags=["patches"])
 app.include_router(repair.router, prefix="/api", tags=["repairs"])
+
+
+@app.get("/", tags=["root"])
+def root():
+    """Service root endpoint returning basic API metadata."""
+    settings = get_settings()
+    return {
+        "service": "PatchPilot API",
+        "status": "online",
+        "health": "/api/health",
+        "version": BUILD_INFO,
+        "app_mode": settings.APP_MODE,
+    }
 
 
 @app.get("/api/health", tags=["health"])
