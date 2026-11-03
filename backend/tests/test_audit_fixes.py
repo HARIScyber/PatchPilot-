@@ -45,7 +45,7 @@ def test_build_diffs_rejects_test_files(tmp_path: Path):
 
 def test_build_diffs_rejects_deleted_assertions(tmp_path: Path):
     target = tmp_path / "mod.py"
-    target.write_text("assert x > 0\nx = 1\n", encoding="utf-8")
+    target.write_bytes(b"assert x > 0\nx = 1\n")
     patcher = Patcher()
 
     edits = [{"path": "mod.py", "old_text": "assert x > 0\nx = 1", "new_text": "x = 1"}]

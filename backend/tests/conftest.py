@@ -21,6 +21,10 @@ os.environ.update({
     "GEMINI_API_KEY": "",
 })
 
+# Run alembic migrations once on the temporary test database to match release startup
+from app.database import run_alembic_upgrade_head  # noqa: E402
+run_alembic_upgrade_head()
+
 
 def pytest_unconfigure(config):
     try:
