@@ -1,6 +1,6 @@
 # Production integration audit
 
-Audit date: 3 November 2026. Source baseline: commit `00db54e` on `main`; follow-up integration changes are in the current workspace. No production dashboard credentials were available.
+Audit date: 3 November 2026. Source commit: `a13bcfd` on `main`. No production dashboard credentials were available.
 
 ## Working in source
 
