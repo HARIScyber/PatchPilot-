@@ -18,6 +18,25 @@ Checked 3 November 2026. This report records observed results only; tests were n
 | Local backend tests | `python -m pytest tests -q` from `backend` | All tests pass | 41 passed, 2 third-party deprecation warnings | PASS |
 | Frontend checks | `node scripts/contrast-check.mjs`; `npm.cmd run typecheck`; `npm.cmd run build` | All pass | Contrast checks passed for all 3 themes; typecheck passed; Vite production build succeeded | PASS |
 
+## Follow-up integration checks
+
+These checks were run in the follow-up integration pass after the previous GitHub source update:
+
+| Check | Command | Actual | Result |
+|---|---|---|---|
+| Backend regression suite | `python -m pytest tests -q` from `backend` | 41 passed, 2 third-party deprecation warnings | PASS |
+| Frontend contrast/typecheck/build | `node scripts/contrast-check.mjs`; `npm.cmd run typecheck`; `npm.cmd run build` | All three themes pass; TypeScript passes; Vite build succeeds | PASS |
+| Ruff | `python -m ruff check backend/app` | All checks passed | PASS |
+| Credential scan | `python scripts/credential-scan.py` | No configured credential patterns found | PASS |
+| Deploy probe script syntax | PowerShell parser on `scripts/check-deploy.ps1` | Parse succeeded | PASS |
+| Deployment HTTP evidence | `./scripts/check-deploy.ps1` | Not run here because outbound network access is unavailable; owner must run it to create `deploy-proof.json` | NOT RUN |
+| CodeQL | GitHub Actions workflow | Workflow added; no hosted workflow result available in this environment | NOT RUN |
+| Live Meta, repository execution, proof-bundle verification, benchmark, deployed Playwright | Requires a live provider key, isolated runner, reachable deployment, and/or hosted CI | No output captured; no result claimed | NOT RUN |
+
+The probe script writes `deploy-proof.json` locally; it is gitignored because it can contain full HTTP response bodies. The script sends no credentials. Review the evidence file before sharing it.
+
+The first post-push live probes were blocked by outbound network connectivity in this environment. No post-push HTTP result is available; the earlier Vercel 404 and Render timeout remain the last actual HTTP responses.
+
 ## Deployment changes
 
 The source now targets the provided Render hostname and uses a same-origin `/api` client. Local backend/frontend checks pass. No Vercel or Render dashboard deployment has been confirmed; the observed public endpoints remain unavailable as recorded above. A GitHub push does not prove the platform deployment succeeded.

@@ -1,5 +1,9 @@
 # PatchPilot
 
+**Patches that carry their own proof.**
+
+[![CI](https://github.com/HARIScyber/PatchPilot-/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/HARIScyber/PatchPilot-/actions/workflows/ci.yml)
+
 PatchPilot is a prototype for inspecting Python repositories, generating repair proposals, and recording verification evidence. Static analysis, Meta-assisted plans/patches, approval before applying patches, regression-test generation, reports, and a bounded repair loop are implemented. Repository code execution currently fails closed as `EXECUTION_UNAVAILABLE`; generated patches are not proof of a fix.
 
 ## Public endpoints

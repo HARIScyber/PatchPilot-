@@ -14,6 +14,7 @@ __pycache__/
 *.sqlite
 *.sqlite3
 *.db-*
+deploy-proof.json
 *.pem
 *.key
 *.p12

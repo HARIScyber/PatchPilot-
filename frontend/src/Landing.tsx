@@ -47,7 +47,7 @@ export default function Landing() {
       <section className="hero">
         <div className="hero-copy"><div className="eyebrow"><span className="pulse-dot"/> REPAIR WORKFLOW · EVIDENCE FIRST</div>
           <h1>AI that proves<br/><span>its fixes.</span></h1>
-          <p className="hero-lede">Trace a bug from first clue to candidate patch, with every model action and verification result kept in view.</p>
+          <p className="hero-lede">Patches that carry their own proof. Trace a bug from first clue to candidate patch, with every model action and verification result kept in view.</p>
           <div className="hero-ctas"><a className="button" href="/work">Explore the workspace <ArrowRight size={17}/></a><a className="text-link" href="/gallery">Browse recorded examples <ArrowDownRight size={16}/></a></div>
           <p className="honesty-note"><CircleHelp size={15}/> Execution is currently unavailable. Generated patches are proposals; this build does not prove they pass tests.</p>
         </div>

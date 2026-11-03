@@ -50,6 +50,7 @@ export default function App() {
   const [health, setHealth] = useState<any>(null);
   const [serverReady, setServerReady] = useState(false);
   const [serverWaking, setServerWaking] = useState(true);
+  const [wakeAttempt, setWakeAttempt] = useState(0);
   const [evaluationResults, setEvaluationResults] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -88,10 +89,14 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     const wakeBackend = async () => {
-      const delays = [0, 1000, 2000, 4000, 8000, 15000, 30000];
-      for (const delay of delays) {
+      const delays = [0, 1000, 2000, 4000, 8000, 15000, 30000, 60000];
+      let attempt = 0;
+      while (!cancelled) {
+        const delay = delays[Math.min(attempt, delays.length - 1)];
         if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
         if (cancelled) return;
+        attempt += 1;
+        setWakeAttempt(attempt);
         try {
           const data = await api.fetchHealth();
           if (cancelled) return;
@@ -395,7 +400,9 @@ export default function App() {
 
       {serverWaking && (
         <div className="bg-amber-950/60 border-b border-amber-800 px-6 py-2 text-xs text-amber-200">
-          Waking the server (free hosting can take up to a minute). Start actions unlock when the API is ready.
+          {wakeAttempt === 0
+            ? 'Connecting to the backend. Free hosting can take about a minute to wake.'
+            : `Backend is not responding yet. Retrying with backoff (attempt ${wakeAttempt}); actions unlock when the API is ready.`}
         </div>
       )}
 

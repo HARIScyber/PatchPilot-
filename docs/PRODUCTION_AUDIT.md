@@ -1,6 +1,6 @@
 # Production integration audit
 
-Audit date: 3 November 2026. Sources inspected: local `main` at `352d0004f60b92e57ef227a89e91df1cb1c0ec80`, matching the GitHub `origin/main` SHA during this check. No production dashboard credentials were available.
+Audit date: 3 November 2026. Source baseline: commit `00db54e` on `main`; follow-up integration changes are in the current workspace. No production dashboard credentials were available.
 
 ## Working in source
 
@@ -10,6 +10,7 @@ Audit date: 3 November 2026. Sources inspected: local `main` at `352d0004f60b92e
 - Test execution is disabled by the sandbox (`EXECUTION_UNAVAILABLE`) before it launches a subprocess. No Pyodide/browser runner exists.
 - Render Docker startup binds to `0.0.0.0:$PORT`; Vercel serves static frontend output and rewrites API paths.
 - CI runs backend tests and frontend contrast/typecheck/build.
+- Health wake retries run with increasing delays; an owner-run deployment probe captures status, elapsed time, headers, body, and foreign-origin CORS behavior without credentials.
 
 ## Fixed in this integration pass
 
@@ -30,6 +31,7 @@ Audit date: 3 November 2026. Sources inspected: local `main` at `352d0004f60b92e
 - No persisted per-artifact provider call trace, durable run events/SSE, private share tokens, feedback storage, retention worker, or browser execution runner exists.
 - Live Meta connectivity has not been tested; no live key or billing state is known. Public Meta action kill switch remains off by default.
 - CSP/API rewrite source is prepared but Vercel dashboard/project settings and Render env settings remain to be confirmed.
+- Follow-up CI adds Ruff, a workspace credential scan, and CodeQL. CodeQL has not run in hosted CI; local checks are not a substitute for its result.
 
 ## Security findings
 

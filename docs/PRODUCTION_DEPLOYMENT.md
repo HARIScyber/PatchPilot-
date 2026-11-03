@@ -42,4 +42,6 @@ Current SQLAlchemy code defaults to SQLite and creates tables at startup. There 
 
 On 3 November 2026, the supplied Vercel root returned HTTP 404. The Render `/api/health` request timed out after 100 seconds with curl exit code 28 and no HTTP response. These local configuration changes are not deployed until the platforms confirm new deployments. Confirm Git integration, project root, production branch, and the Render service dashboard, then redeploy the existing services (do not create another Render service). Use the commands in [END_TO_END_TEST_REPORT.md](END_TO_END_TEST_REPORT.md) and update the report only with actual results.
 
+For a single capture of direct/proxied health, SPA fallback, headers, elapsed time, and foreign-origin CORS, run `./scripts/check-deploy.ps1` from the repository root. It allows 120 seconds per request and writes local `deploy-proof.json`; the file is gitignored. Review response bodies before sharing it. The precise host-side root cause remains unknown until the Vercel and Render dashboard logs are inspected.
+
 Official hosting facts checked 3 November 2026: Vercel [external rewrites](https://vercel.com/docs/routing/rewrites); Render [Free limits and ephemeral storage](https://render.com/docs/free). Render Free sleeps after 15 minutes idle, may take about a minute to start, and does not persist local SQLite files.

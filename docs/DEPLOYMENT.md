@@ -1,7 +1,44 @@
-# Deployment status
+# Deployment diagnosis and owner checklist
 
-See [the production deployment guide](PRODUCTION_DEPLOYMENT.md) for the current Vercel and Render configuration and the dashboard steps still required.
+## What the available evidence says
 
-The source config uses Vercel's same-origin `/api/*` rewrite to `https://patchpilot-rurc.onrender.com`. This does not prove a live deployment is updated. As checked on 3 November 2026, the provided Vercel URL returned HTTP 404 and the Render health request timed out without an HTTP response. See [the end-to-end report](END_TO_END_TEST_REPORT.md).
+On 3 November 2026, the supplied Vercel production URL returned HTTP 404 (`NOT_FOUND`) and the supplied Render `/api/health` request timed out without an HTTP response. After commit `00db54e` was pushed, the local environment could not reach either host, so no post-push deployment result was captured. The hosting root cause is **not confirmed**: there is no access to the Vercel or Render project dashboard, deployment logs, or current service environment.
 
-Render Free services can sleep after 15 minutes and use an ephemeral filesystem. The current project defaults to SQLite and has no production migration history, so production data persistence is not established. Application-level request/call limits are not provider billing caps. Review [the production audit](PRODUCTION_AUDIT.md) and [security notes](SECURITY.md) before enabling public AI actions.
+The source-side routing issue that was confirmed has been corrected: `frontend/vercel.json` now sends `/api/*` to `https://patchpilot-rurc.onrender.com/api/*`, with the SPA fallback after that rewrite. This does not establish that Vercel's production project builds from this configuration. A Vercel 404 may indicate a project root/build/output/domain issue, but that is a hypothesis until its deployment settings and build log are inspected.
+
+## Vercel project settings to verify
+
+In the existing Vercel project, check the production deployment and build log, then confirm:
+
+- Root Directory: `frontend`.
+- Framework Preset: `Vite`.
+- Install Command: `npm ci` (or the detected equivalent).
+- Build Command: `npm run build`.
+- Output Directory: `dist`.
+- The successful deployment is the one assigned to `patchpilot-delta.vercel.app`.
+- `frontend/vercel.json` is at that configured root. Its API rewrite targets the complete Render HTTPS origin and precedes the SPA fallback.
+- The deployment log shows a supported Node version and no failed install/build step.
+
+No dashboard setting has been changed or verified from this workspace. If the current project uses the repository root, set the Root Directory to `frontend`, redeploy, and capture the successful build log. That is the first setting to verify because there is no root `index.html`, but it is not yet proven to be the 404 cause.
+
+## Render service settings to verify
+
+Inspect the existing service `srv-dbkd5icipgvc73c80080` (do not create a duplicate) and capture the build/start log. The repository Dockerfile starts Uvicorn on `0.0.0.0:${PORT:-8000}`; the configured Render health path is `/api/health`. Confirm the Docker image built, the service started with Render's assigned `PORT`, and required variable **names** are present. Never copy secret values into logs or this repository.
+
+`/api/health` checks database connectivity and returns cached provider configuration only; it does not call Meta. A free instance may need time to wake, so the owner-run probe allows 120 seconds. The SQLite database directory is `/app/database` in the container and is writable by the non-root app user, but Render Free storage is ephemeral; no persistent disk or durable production database has been established. Sample data is loaded through the explicit sample-project action, not silently seeded at startup.
+
+The frontend retries health requests with increasing delays and keeps start actions disabled until the backend responds. An external keep-warm monitor is optional; configure one only if you accept the plan's availability and usage implications. A keep-warm ping does not make ephemeral storage durable.
+
+## Capture deployment evidence
+
+From PowerShell at the repository root, run:
+
+```powershell
+./scripts/check-deploy.ps1
+```
+
+It probes direct Render health (up to 120 seconds), Vercel root, a deep SPA route, Vercel-proxied health, and direct Render CORS from a foreign origin. It writes timestamped status, elapsed time, headers, response bodies, and the CORS decision to `deploy-proof.json` without sending credentials. Review the generated file before sharing it. It is local evidence and is intentionally not committed by default.
+
+Acceptance requires HTTP 200 from direct Render health, Vercel `/`, a deep Vercel route, and Vercel `/api/health`, plus no `Access-Control-Allow-Origin` for the foreign origin. If any check fails, inspect the corresponding Vercel deployment log or Render service log and record the exact log line and setting changed here. Do not label a guessed cause as the fix.
+
+See the [production deployment guide](PRODUCTION_DEPLOYMENT.md), [end-to-end report](END_TO_END_TEST_REPORT.md), and [production audit](PRODUCTION_AUDIT.md). The public deployment remains unverified until fresh proof is captured after a successful deployment.
