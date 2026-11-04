@@ -213,7 +213,7 @@ class MetaClient:
         """Send chat completion request to Meta API or return mock if explicitly in DEMO_MODE."""
         if self.settings.APP_MODE == "public_demo" and self.settings.LLM_PROVIDER != "meta" and not self.settings.ALLOW_DEV_PROVIDER:
             raise MetaAPIError("Development providers are disabled in public mode.", provider_status="PUBLIC_DEMO_DISABLED")
-        if self.settings.APP_MODE == "public_demo" and not public_ai_is_ready(self.settings):
+        if self.settings.APP_MODE == "public_demo" and not public_ai_is_ready(self.settings) and not self.settings.DEMO_MODE:
             raise MetaAPIError("Public demo is temporarily disabled.", provider_status="PUBLIC_DEMO_DISABLED")
         if self.settings.APP_MODE == "public_demo":
             max_tokens = min(max_tokens, self.settings.PUBLIC_MAX_TOKENS_PER_CALL)

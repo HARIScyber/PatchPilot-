@@ -137,7 +137,7 @@ async def add_security_headers(request: Request, call_next):
                 "message": "Invalid request size."})
         protected = any(pattern.fullmatch(normalized_path) for pattern in PROTECTED_AI_ROUTES) and request.method == "POST"
         if protected:
-            if not public_ai_is_ready(settings):
+            if not public_ai_is_ready(settings) and not settings.DEMO_MODE:
                 return JSONResponse(status_code=503, content={"error_code": "PUBLIC_DEMO_DISABLED",
                     "message": "Public AI actions are disabled until every launch gate passes."})
             address = request.client.host if request.client else "unknown"
